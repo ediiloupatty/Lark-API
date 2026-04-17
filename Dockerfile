@@ -33,6 +33,8 @@ COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
+# Firebase credential di-bake ke image (bukan bind mount) agar tidak auto-create directory
+COPY firebase-service-account.json ./firebase-service-account.json
 
 EXPOSE 3000
 

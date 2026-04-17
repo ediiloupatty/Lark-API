@@ -30,9 +30,6 @@ services:
       PORT: 3000
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-secret}@postgres:5432/${POSTGRES_DB:-db_laundry}?schema=public
       JWT_SECRET: ${JWT_SECRET}
-    volumes:
-      # Mount firebase service account dari host → container (tidak perlu masuk image)
-      - ./firebase-service-account.json:/app/firebase-service-account.json:ro
     depends_on:
       postgres:
         condition: service_healthy
