@@ -86,8 +86,8 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Aktifkan dengan set MAINTENANCE_MODE=true di .env, lalu restart backend.
 app.use(maintenanceMiddleware);
 
-// Connect to Database
-checkConnection();
+// Connect to Database (with retry)
+const dbReady = checkConnection();
 
 // Register Routes
 app.use('/api/v1/auth', authRoutes);
@@ -106,9 +106,26 @@ app.put('/api/v1/expenses',    authenticateToken, updateExpense);
 app.delete('/api/v1/expenses', authenticateToken, deleteExpense);
 
 
-// Basic health check endpoint
-app.get('/api/v1/health', (req: Request, res: Response) => {
-  res.json({ status: 'ok', message: 'LarkLaundry Node.js API is running' });
+// Health check endpoint — benar-benar test koneksi DB, bukan cuma return OK
+import { isDbHealthy } from './config/db';
+app.get('/api/v1/health', async (req: Request, res: Response) => {
+  const dbHealth = await isDbHealthy();
+  const status = dbHealth.ok ? 'ok' : 'degraded';
+  const httpCode = dbHealth.ok ? 200 : 503;
+
+  res.status(httpCode).json({
+    status,
+    message: dbHealth.ok
+      ? 'LarkLaundry Node.js API is running'
+      : 'API running but database is unreachable',
+    db: {
+      connected: dbHealth.ok,
+      latency_ms: dbHealth.latencyMs,
+      ...(dbHealth.error ? { error: dbHealth.error } : {}),
+    },
+    uptime_seconds: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString(),
+  });
 });
 
 app.use((req: Request, res: Response, next) => {
@@ -120,38 +137,49 @@ app.use((req: Request, res: Response, next) => {
 import { db, pool } from './config/db';
 
 async function bootstrap() {
+  // Tunggu hasil checkConnection (retry logic)
+  const isDbConnected = await dbReady;
+
+  if (!isDbConnected) {
+    console.error('🚨 [Bootstrap] Database TIDAK tersedia. Server akan jalan tapi API bergantung DB akan error 503.');
+  }
+
   // Gunakan pool pg langsung untuk DDL — $executeRawUnsafe tidak support PrismaPg adapter
-  try {
-    const client = await pool.connect();
+  if (isDbConnected) {
     try {
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS device_tokens (
-          id SERIAL PRIMARY KEY,
-          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-          token VARCHAR(512) NOT NULL UNIQUE,
-          platform VARCHAR(20) NOT NULL DEFAULT 'android',
-          created_at TIMESTAMPTZ DEFAULT NOW(),
-          updated_at TIMESTAMPTZ DEFAULT NOW()
-        )
-      `);
-      await client.query(`CREATE INDEX IF NOT EXISTS idx_device_tokens_tenant_id ON device_tokens(tenant_id)`);
-      await client.query(`CREATE INDEX IF NOT EXISTS idx_device_tokens_user_id ON device_tokens(user_id)`);
-      console.log('[Bootstrap] ✅ Tabel device_tokens sudah siap.');
-    } catch (e: any) {
-      if (e.code !== '42P07') {
-        console.warn('[Bootstrap] device_tokens warning:', e.message);
+      const client = await pool.connect();
+      try {
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS device_tokens (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+            token VARCHAR(512) NOT NULL UNIQUE,
+            platform VARCHAR(20) NOT NULL DEFAULT 'android',
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+          )
+        `);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_device_tokens_tenant_id ON device_tokens(tenant_id)`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_device_tokens_user_id ON device_tokens(user_id)`);
+        console.log('[Bootstrap] ✅ Tabel device_tokens sudah siap.');
+      } catch (e: any) {
+        if (e.code !== '42P07') {
+          console.warn('[Bootstrap] device_tokens warning:', e.message);
+        }
+      } finally {
+        client.release();
       }
-    } finally {
-      client.release();
+    } catch (e: any) {
+      console.warn('[Bootstrap] Pool connect gagal (diabaikan):', e.message);
     }
-  } catch (e: any) {
-    // Koneksi pool gagal (auth error, dll) — server tetap jalan, bootstrap dilewati
-    console.warn('[Bootstrap] Pool connect gagal (diabaikan):', e.message);
   }
 
   app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
+    if (!isDbConnected) {
+      console.warn('⚠️  Server jalan TANPA koneksi database. Periksa DATABASE_URL dan status PostgreSQL!');
+    }
   });
 }
 
