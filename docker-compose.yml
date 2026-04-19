@@ -3,17 +3,20 @@ services:
     image: postgres:16-alpine
     container_name: lark_postgres
     restart: unless-stopped
+    entrypoint: ["/docker-entrypoint-initdb.d/pg-entrypoint-wrapper.sh"]
+    command: ["postgres"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-db_laundry}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secret}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Auto-sync password: script ini dijalankan setiap kali DB init,
-      # mencegah mismatch password antara env var dan volume lama.
+      # Password sync scripts — mounted into initdb.d for access
       - ./docker/init-sync-password.sh:/docker-entrypoint-initdb.d/init-sync-password.sh:ro
-    ports:
-      - "5432:5432"
+      - ./docker/sync-password.sh:/docker-entrypoint-initdb.d/sync-password.sh:ro
+      - ./docker/pg-entrypoint-wrapper.sh:/docker-entrypoint-initdb.d/pg-entrypoint-wrapper.sh:ro
+#    ports:
+#      - "5432:5432"
     networks:
       - lark_internal
     healthcheck:
@@ -39,9 +42,8 @@ services:
     networks:
       - lark_internal
     ports:
-      - "80:3000" # Expose public port 80 langsung nembak masuk ke backend 3000
+      - "80:3000"
     healthcheck:
-      # Health endpoint return 503 saat DB unreachable → Docker deteksi unhealthy → auto-restart
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/v1/health | grep -q '\"status\":\"ok\"' || exit 1"]
       interval: 30s
       timeout: 10s

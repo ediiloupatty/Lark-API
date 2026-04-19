@@ -55,13 +55,21 @@ app.use((req: Request, res: Response, next) => {
   const origin = req.headers.origin;
   const platform = req.headers['x-app-platform'];
 
-  // 1. Izinkan request dari Web yang memiliki origin terdaftar
-  if (origin && (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app'))) {
+  // 1. Izinkan request dari Web yang memiliki origin terdaftar atau dari jaringan lokal (untuk dev)
+  if (
+    origin && 
+    (allowedOrigins.includes(origin) || 
+     origin.endsWith('.vercel.app') || 
+     origin.startsWith('http://localhost') || 
+     origin.startsWith('http://127.0.0.1') || 
+     origin.startsWith('http://192.168.') ||
+     origin.startsWith('http://10.'))
+  ) {
     return next();
   }
 
-  // 2. Izinkan request dari Mobile App (wajib ada custom header)
-  if (platform === 'LarkMobile') {
+  // 2. Izinkan request dari Mobile App / Web App yang secara eksplisit mengirimkan header
+  if (platform === 'LarkMobile' || platform === 'LarkWeb') {
     return next();
   }
   
