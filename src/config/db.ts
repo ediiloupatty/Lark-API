@@ -11,7 +11,7 @@ dotenv.config({ path: path.join(__dirname, '../../.env') });
 // Pool dikonfigurasi agar tahan terhadap gangguan koneksi sementara.
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  max: 20,                        // Maks 20 koneksi paralel
+  max: 100,                       // Maks 100 koneksi paralel untuk mengakomodasi Offline Sync
   idleTimeoutMillis: 30000,       // Tutup koneksi idle setelah 30 detik
   connectionTimeoutMillis: 5000,  // Timeout 5 detik jika pool penuh
 });

@@ -44,17 +44,42 @@ const globalLimiter = rateLimit({
 });
 app.use('/api', globalLimiter);
 
-// Security 3: Segel Pintu Gerbang Web (CORS Strict List)
-// Aplikasi Mobile tidak terkena blokir karena tidak memiliki origin browser.
+// Security 3: Segel Pintu Gerbang API (Custom Header & CORS Strict List)
 const allowedOrigins = [
   'http://localhost:5173', // Web Lokal Dev
   'http://127.0.0.1:5173',
   process.env.VITE_FRONTEND_URL || 'https://lark-laundry.vercel.app' // Web Live Produksi
 ];
 
+app.use((req: Request, res: Response, next) => {
+  const origin = req.headers.origin;
+  const platform = req.headers['x-app-platform'];
+
+  // 1. Izinkan request dari Web yang memiliki origin terdaftar
+  if (origin && (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app'))) {
+    return next();
+  }
+
+  // 2. Izinkan request dari Mobile App (wajib ada custom header)
+  if (platform === 'LarkMobile') {
+    return next();
+  }
+  
+  // 3. Izinkan endpoint public / webhook (Health check, landing stats, auth lokal untuk mempermudah dev jika perlu)
+  if (req.path.startsWith('/api/v1/public/') || req.path === '/api/v1/health') {
+    return next();
+  }
+
+  // 4. Selain itu (seperti Postman, cURL tanpa header), blokir aksesnya
+  return res.status(403).json({
+    status: 'error',
+    message: 'Akses ditolak. Endpoint hanya dapat diakses melalui aplikasi resmi Lark Laundry.'
+  });
+});
+
 app.use(cors({
   origin: (origin, callback) => {
-    // 1. Izinkan koneksi tanpa origin (seperti curl, postman, Mobile App)
+    // 1. Izinkan koneksi tanpa origin (seperti curl, postman, Mobile App) yang lolos pengecekan custom header
     if (!origin) return callback(null, true);
     
     // 2. Izinkan domain web terdaftar
@@ -132,6 +157,16 @@ app.use((req: Request, res: Response, next) => {
   console.log(`[404 NOT FOUND] Method: ${req.method} | URL: ${req.url}`);
   // Fix BC-5: Kembalikan JSON agar Flutter tidak crash saat parse response
   res.status(404).json({ status: 'error', message: `Endpoint tidak ditemukan: ${req.method} ${req.url}` });
+});
+
+// Global Error Handler (Menangkap Unhandled Promise Rejections & Error tak terduga)
+app.use((err: any, req: Request, res: Response, next: express.NextFunction) => {
+  console.error('🚨 [Global Error]', err);
+  res.status(500).json({ 
+    status: 'error', 
+    success: false, 
+    message: 'Internal Server Error. Silakan coba lagi nanti.' 
+  });
 });
 
 import { db, pool } from './config/db';
