@@ -54,6 +54,8 @@ const allowedOrigins = [
 app.use((req: Request, res: Response, next) => {
   const origin = req.headers.origin;
   const platform = req.headers['x-app-platform'];
+  const vercelId = req.headers['x-vercel-id'];
+  const forwardedHost = req.headers['x-forwarded-host'] as string | undefined;
 
   // 1. Izinkan request dari Web yang memiliki origin terdaftar atau dari jaringan lokal (untuk dev)
   if (
@@ -68,17 +70,22 @@ app.use((req: Request, res: Response, next) => {
     return next();
   }
 
-  // 2. Izinkan request dari Mobile App / Web App yang secara eksplisit mengirimkan header
+  // 2. Izinkan request proxy dari Vercel (karena Vercel menghapus origin saat melakukan rewrite)
+  if (vercelId || (forwardedHost && forwardedHost.endsWith('.vercel.app'))) {
+    return next();
+  }
+
+  // 3. Izinkan request dari Mobile App / Web App yang secara eksplisit mengirimkan header
   if (platform === 'LarkMobile' || platform === 'LarkWeb') {
     return next();
   }
   
-  // 3. Izinkan endpoint public / webhook (Health check, landing stats, auth lokal untuk mempermudah dev jika perlu)
+  // 4. Izinkan endpoint public / webhook (Health check, landing stats, auth lokal untuk mempermudah dev jika perlu)
   if (req.path.startsWith('/api/v1/public/') || req.path === '/api/v1/health') {
     return next();
   }
 
-  // 4. Selain itu (seperti Postman, cURL tanpa header), blokir aksesnya
+  // 5. Selain itu (seperti Postman, cURL tanpa header), blokir aksesnya
   return res.status(403).json({
     status: 'error',
     message: 'Akses ditolak. Endpoint hanya dapat diakses melalui aplikasi resmi Lark Laundry.'
