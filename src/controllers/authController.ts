@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { db } from '../config/db';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
+import { OAuth2Client } from 'google-auth-library';
 import { clearFailedLogin, recordFailedLogin } from '../middlewares/rateLimiter';
 import { writeAuditLog } from '../utils/auditHelper';
 import {
@@ -11,6 +12,10 @@ import {
   verifyModernPassword,
 } from '../utils/authUtils';
 import { sendPasswordResetEmail } from '../utils/mailer';
+
+// Inisialisasi Google OAuth2 Client — digunakan untuk verifikasi ID Token
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 export const loginAdmin = async (req: Request, res: Response) => {
   const ipAddress = req.ip || req.socket?.remoteAddress || '0.0.0.0';
@@ -36,8 +41,8 @@ export const loginAdmin = async (req: Request, res: Response) => {
       await new Promise((resolve) => setTimeout(resolve, Math.floor(Math.random() * 200) + 100));
     }
     
-    // We only proceed if user exists and is not deleted
-    if (user && user.deleted_at === null && (await verifyModernPassword(trimmedPassword, user.password))) {
+    // We only proceed if user exists, is not deleted, HAS a password, and password matches
+    if (user && user.deleted_at === null && user.password && (await verifyModernPassword(trimmedPassword, user.password))) {
       const role = normalizeAppRole(user.role);
 
       if (role === 'karyawan') {
@@ -446,5 +451,234 @@ export const resetPassword = async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('[ResetPassword Error]', err);
     return res.status(500).json({ status: 'error', message: 'Terjadi kesalahan pada server.' });
+  }
+};
+
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/auth/google
+// Login atau Auto-Register menggunakan Google ID Token (One Tap / Sign-In).
+// Tidak memerlukan Client Secret — hanya verifikasi ID Token dengan Client ID.
+// ---------------------------------------------------------------------------
+export const googleLogin = async (req: Request, res: Response) => {
+  const ipAddress = req.ip || req.socket?.remoteAddress || '0.0.0.0';
+  const userAgent = req.headers['user-agent'] || 'unknown';
+
+  try {
+    const { credential } = req.body;
+
+    if (!credential) {
+      return res.status(400).json({
+        status: 'error',
+        success: false,
+        error: 'Google credential token wajib disertakan.',
+      });
+    }
+
+    if (!GOOGLE_CLIENT_ID) {
+      console.error('[GoogleLogin] GOOGLE_CLIENT_ID belum dikonfigurasi di .env');
+      return res.status(500).json({
+        status: 'error',
+        success: false,
+        error: 'Konfigurasi Google OAuth belum lengkap di server.',
+      });
+    }
+
+    // 1. Verifikasi ID Token menggunakan Google Auth Library
+    //    Ini memastikan token benar-benar dikeluarkan oleh Google dan ditujukan untuk Client ID kita
+    let payload;
+    try {
+      const ticket = await googleClient.verifyIdToken({
+        idToken: credential,
+        audience: GOOGLE_CLIENT_ID,
+      });
+      payload = ticket.getPayload();
+    } catch (verifyErr: any) {
+      console.error('[GoogleLogin] Token verification failed:', verifyErr.message);
+      return res.status(401).json({
+        status: 'error',
+        success: false,
+        error: 'Token Google tidak valid atau sudah kadaluarsa. Silakan coba lagi.',
+      });
+    }
+
+    if (!payload || !payload.sub || !payload.email) {
+      return res.status(401).json({
+        status: 'error',
+        success: false,
+        error: 'Data profil Google tidak lengkap.',
+      });
+    }
+
+    const googleId = payload.sub;
+    const googleEmail = payload.email.toLowerCase();
+    const googleName = payload.name || googleEmail.split('@')[0];
+
+    // 2. Cari user berdasarkan google_id terlebih dahulu (paling cepat & akurat)
+    let user = await db.users.findFirst({
+      where: { google_id: googleId, deleted_at: null },
+    });
+
+    // 3. Jika tidak ditemukan via google_id, coba cari berdasarkan email
+    //    (untuk kasus user yang sudah register manual lalu ingin link ke Google)
+    if (!user) {
+      user = await db.users.findFirst({
+        where: { email: googleEmail, deleted_at: null },
+      });
+
+      // Jika ditemukan via email, link google_id ke akun yang sudah ada
+      if (user) {
+        await db.users.update({
+          where: { id: user.id },
+          data: {
+            google_id: googleId,
+            auth_provider: user.auth_provider === 'local' ? 'local+google' : user.auth_provider,
+          },
+        });
+      }
+    }
+
+    // 4. Jika user benar-benar baru → Auto-Register sebagai owner dengan tenant baru
+    if (!user) {
+      // Generate username unik dari email (menghilangkan karakter non-alfanumerik)
+      let baseUsername = googleEmail.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').substring(0, 30);
+      let finalUsername = baseUsername;
+      let counter = 1;
+
+      // Pastikan username unik
+      while (await db.users.findUnique({ where: { username: finalUsername } })) {
+        finalUsername = `${baseUsername}${counter}`;
+        counter++;
+      }
+
+      const slug = (googleName + ' Laundry').toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+
+      // Buat tenant + user dalam satu transaksi atomik
+      const result = await db.$transaction(async (tx) => {
+        const tenant = await tx.tenants.create({
+          data: {
+            name: googleName + ' Laundry',
+            slug,
+            address: 'Belum diatur',
+            phone: 'Belum diatur',
+            subscription_plan: 'free',
+            subscription_until: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          },
+        });
+
+        const newUser = await tx.users.create({
+          data: {
+            tenant_id: tenant.id,
+            outlet_id: null,
+            username: finalUsername,
+            password: null, // Google-only account — tidak ada password
+            role: 'owner',
+            nama: googleName,
+            email: googleEmail,
+            is_active: true,
+            google_id: googleId,
+            auth_provider: 'google',
+          },
+        });
+
+        // Seed default services
+        await tx.services.createMany({
+          data: [
+            { tenant_id: tenant.id, nama_layanan: 'Cuci Biasa', harga_per_kg: 5000, deskripsi: 'Layanan cuci regular (2-3 hari)', durasi_hari: 3 },
+            { tenant_id: tenant.id, nama_layanan: 'Cuci Setrika', harga_per_kg: 8000, deskripsi: 'Layanan cuci + setrika (2-3 hari)', durasi_hari: 3 },
+            { tenant_id: tenant.id, nama_layanan: 'Setrika Saja', harga_per_kg: 3000, deskripsi: 'Layanan setrika saja (1 hari)', durasi_hari: 1 },
+          ],
+        });
+
+        // Seed settings
+        await tx.tenant_settings.create({
+          data: {
+            tenant_id: tenant.id,
+            setting_key: 'toko_info',
+            setting_value: {
+              nama: googleName + ' Laundry',
+              alamat: 'Belum diatur',
+              telepon: 'Belum diatur',
+              email: googleEmail,
+            },
+          },
+        });
+
+        return newUser;
+      });
+
+      user = result;
+    }
+
+    // 5. Validasi akun — konsisten dengan loginAdmin
+    const role = normalizeAppRole(user.role);
+
+    if (role === 'karyawan') {
+      return res.status(403).json({
+        status: 'error',
+        success: false,
+        error: 'Akun karyawan tidak dapat login melalui web. Gunakan aplikasi mobile Lark.',
+      });
+    }
+
+    if (!user.is_active) {
+      return res.status(403).json({
+        status: 'error',
+        success: false,
+        error: 'Akun Anda telah dinonaktifkan. Hubungi administrator.',
+      });
+    }
+
+    // 6. Audit log
+    await writeAuditLog(db, {
+      tenant_id: user.tenant_id,
+      outlet_id: user.outlet_id,
+      actor_user_id: user.id,
+      entity_type: 'user',
+      entity_id: user.id,
+      action: 'login_google_success_web',
+      metadata: { ip: ipAddress, user_agent: userAgent, google_email: googleEmail },
+    });
+
+    // 7. Issue JWT — format respons identik dengan loginAdmin agar frontend tidak perlu diubah
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) throw new Error('JWT_SECRET environment variable is not configured!');
+
+    const token = jwt.sign(
+      {
+        user_id: user.id,
+        username: user.username,
+        role,
+        tenant_id: user.tenant_id,
+        outlet_id: user.outlet_id,
+      },
+      jwtSecret,
+      { expiresIn: '24h' }
+    );
+
+    return res.status(200).json({
+      status: 'success',
+      success: true,
+      message: 'Login dengan Google berhasil!',
+      data: {
+        token,
+        user: {
+          id: user.id,
+          username: user.username,
+          nama: user.nama || user.username,
+          role,
+          tenant_id: user.tenant_id,
+          outlet_id: user.outlet_id,
+          permissions: typeof user.permissions === 'string' ? JSON.parse(user.permissions) : (user.permissions || {}),
+        },
+      },
+    });
+  } catch (err: any) {
+    console.error('[GoogleLogin Error]', err);
+    return res.status(500).json({
+      status: 'error',
+      success: false,
+      error: 'Terjadi kesalahan pada server saat login dengan Google.',
+    });
   }
 };

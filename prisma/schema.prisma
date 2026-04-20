@@ -354,7 +354,7 @@ model users {
   id                   Int             @id @default(autoincrement())
   tenant_id            Int?
   username             String          @unique @db.VarChar(50)
-  password             String          @db.VarChar(255)
+  password             String?         @db.VarChar(255)
   role                 user_role
   nama                 String?         @db.VarChar(100)
   email                String?         @db.VarChar(100)
@@ -370,6 +370,9 @@ model users {
   // Kolom untuk fitur lupa password (admin web only)
   reset_token          String?         @db.VarChar(64)
   reset_token_expires  DateTime?       @db.Timestamp(6)
+  // Kolom untuk Google OAuth (SSO)
+  google_id            String?         @unique @db.VarChar(255)
+  auth_provider        String?         @default("local") @db.VarChar(20)
   audit_logs           audit_logs[]
   customers            customers[]
   device_tokens        device_tokens[]
