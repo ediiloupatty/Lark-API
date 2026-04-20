@@ -62,7 +62,20 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
          const totalAmount = parseFloat(o.total_amount || o.total_harga || 0);
          const items = Array.isArray(o.items) ? o.items : (Array.isArray(o.order_details) ? o.order_details : []);
 
-         // 1. Handle Customer
+         // 1. Handle Customer & Tenant Boundary Check
+         if (customerId) {
+           // [SECURITY FIX] Cross-Tenant Leak / IDOR Prevention
+           // Pastikan customerId benar-benar milik tenant ini
+           const verifyCust = await tx.customers.findFirst({
+             where: { id: parseInt(customerId), tenant_id: tenantId, deleted_at: null }
+           });
+           if (!verifyCust) {
+             console.warn(`[Sync Push] IDOR Attempt/Invalid Customer ID: ${customerId} oleh Tenant ${tenantId}`);
+             // Paksa jadi null agar jatuh ke logika pembuatan/pencarian pelanggan lokal di bawah
+             customerId = null; 
+           }
+         }
+
          if (!customerId) {
            if (customerPhone) {
              const existCust = await tx.customers.findFirst({
@@ -88,6 +101,17 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
                });
                customerId = newWalk.id;
              }
+           }
+         }
+
+         // [SECURITY FIX] Validate Outlet ID
+         let safeOutletId = req.user?.outlet_id; // Default ke outlet kasir
+         if (outletId) {
+           const verifyOutlet = await tx.outlets.findFirst({
+             where: { id: parseInt(outletId), tenant_id: tenantId }
+           });
+           if (verifyOutlet) {
+             safeOutletId = verifyOutlet.id;
            }
          }
 
@@ -126,7 +150,7 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
                tracking_code: orderNumber,
                total_harga: totalAmount,
                metode_antar: metodeAntar === 'jemput' ? 'jemput' : 'antar_sendiri',
-               outlet_id: outletId,
+               outlet_id: safeOutletId,
                user_id: req.user?.user_id,
                client_id: clientId || null,
                payments: {
@@ -134,7 +158,7 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
                     tenant_id: tenantId,
                     metode_pembayaran: safeMethod,
                     jumlah_bayar: totalAmount,
-                    outlet_id: outletId
+                    outlet_id: safeOutletId
                   }]
                },
                order_details: {

@@ -207,10 +207,6 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
     const userId = req.user?.user_id;
     let targetOutletId = req.user?.outlet_id || null;
 
-    if (isAdmin && req.body.outlet_id) {
-      targetOutletId = parseInt(req.body.outlet_id);
-    }
-
     const { 
       customer_id, 
       items, 
@@ -229,6 +225,27 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
 
     if (!customer_id || !items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ status: 'error', message: 'Customer ID dan Items wajib diisi.' });
+    }
+
+    // [SECURITY FIX] Tenant Boundary Check for Customer
+    const parsedCustomerId = parseInt(customer_id);
+    const verifyCust = await db.customers.findFirst({
+      where: { id: parsedCustomerId, tenant_id: tenantId, deleted_at: null }
+    });
+    if (!verifyCust) {
+      console.warn(`[Create Order] IDOR Attempt/Invalid Customer ID: ${customer_id} oleh Tenant ${tenantId}`);
+      return res.status(403).json({ status: 'error', message: 'Pelanggan tidak valid atau tidak ditemukan di toko Anda.' });
+    }
+
+    // [SECURITY FIX] Validate Outlet ID
+    let safeOutletId = req.user?.outlet_id || null;
+    if (isAdmin && req.body.outlet_id) {
+      const verifyOutlet = await db.outlets.findFirst({
+        where: { id: parseInt(req.body.outlet_id), tenant_id: tenantId }
+      });
+      if (verifyOutlet) {
+        safeOutletId = verifyOutlet.id;
+      }
     }
 
     // Idempotency check
@@ -260,14 +277,14 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       // Create Order
       const orderData: any = {
         tenant_id: tenantId,
-        customer_id: parseInt(customer_id),
+        customer_id: parsedCustomerId,
         status: 'diproses',
         metode_antar: metode_antar || 'antar_sendiri',
         catatan: catatan || '',
         tracking_code: trackingCode,
         estimasi_tanggal: new Date(estimasiTanggal),
         estimasi_waktu: estimasiWaktu,
-        outlet_id: targetOutletId,
+        outlet_id: safeOutletId,
         client_id: client_id || null,
         server_version: BigInt(Date.now()),
       };
@@ -339,7 +356,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
           status_pembayaran: payStatus,
           // Set tgl_pembayaran immediately if lunas, so history shows the date
           ...(isPayNow ? { tgl_pembayaran: new Date() } : {}),
-          outlet_id: targetOutletId
+          outlet_id: safeOutletId
         }
       });
 
