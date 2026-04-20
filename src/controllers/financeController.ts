@@ -457,13 +457,16 @@ export const getPayments = async (req: AuthRequest, res: Response) => {
     try {
         const tenantId = req.user?.tenant_id;
         const payments = await db.$queryRaw<any[]>`
-            SELECT p.id, p.jumlah_bayar, p.status_pembayaran, p.metode_pembayaran, p.tgl_pembayaran,
+            SELECT p.id, 
+                   CASE WHEN COALESCE(p.jumlah_bayar, 0) = 0 THEN o.total_harga ELSE p.jumlah_bayar END as jumlah_bayar,
+                   p.status_pembayaran, p.metode_pembayaran, 
+                   COALESCE(p.tgl_pembayaran, p.konfirmasi_pada, o.tgl_order) as tgl_pembayaran,
                    o.tracking_code, c.nama as pelanggan_nama
             FROM payments p
             JOIN orders o ON p.order_id = o.id
             JOIN customers c ON o.customer_id = c.id
             WHERE p.tenant_id = ${tenantId}
-            ORDER BY p.created_at DESC LIMIT 50
+            ORDER BY COALESCE(p.tgl_pembayaran, p.created_at) DESC LIMIT 50
         `;
         
         res.json({ 
@@ -482,9 +485,17 @@ export const approvePayment = async (req: AuthRequest, res: Response) => {
         const tenantId = req.user?.tenant_id;
         const id = parseInt(req.body.id);
         
+        // Fix: also fill jumlah_bayar from order total if it was stored as 0
         await db.$executeRaw`
-            UPDATE payments SET status_pembayaran = 'lunas', tgl_pembayaran = NOW() 
-            WHERE id = ${id} AND tenant_id = ${tenantId}
+            UPDATE payments p SET 
+              status_pembayaran = 'lunas', 
+              tgl_pembayaran = NOW(),
+              jumlah_bayar = CASE 
+                WHEN COALESCE(p.jumlah_bayar, 0) = 0 
+                THEN (SELECT COALESCE(o.total_harga, 0) FROM orders o WHERE o.id = p.order_id)
+                ELSE p.jumlah_bayar 
+              END
+            WHERE p.id = ${id} AND p.tenant_id = ${tenantId}
         `;
         
         res.json({ status: 'success', message: 'Pembayaran Dikonfirmasi Lunas' });

@@ -319,8 +319,10 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       });
 
       // Payments
-      const payStatus = (status_bayar === 'sekarang' && totalHarga > 0) ? 'lunas' : 'pending';
-      const payAmount = (status_bayar === 'sekarang' && totalHarga > 0) ? totalHarga : 0;
+      const isPayNow = status_bayar === 'sekarang' && totalHarga > 0;
+      const payStatus = isPayNow ? 'lunas' : 'pending';
+      // Always store the real amount so "Rp 0" never appears in history
+      const payAmount = totalHarga;
       
       // Fallback enum mapping for metode_bayar to match Prisma definition
       let paymentMethodStr = metode_bayar || 'cash';
@@ -335,6 +337,8 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
           metode_pembayaran: paymentMethodStr as any,
           jumlah_bayar: payAmount,
           status_pembayaran: payStatus,
+          // Set tgl_pembayaran immediately if lunas, so history shows the date
+          ...(isPayNow ? { tgl_pembayaran: new Date() } : {}),
           outlet_id: targetOutletId
         }
       });
