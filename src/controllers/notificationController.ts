@@ -1,10 +1,7 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { registerDeviceToken, removeDeviceToken } from '../services/firebaseService';
 import { db } from '../config/db';
-
-interface AuthRequest extends Request {
-  user?: { user_id: number; tenant_id: number; role: string; id?: number };
-}
+import { AuthRequest } from '../middlewares/authMiddleware';
 
 // POST /sync/device-token
 // Dipanggil Flutter setelah login berhasil untuk mendaftarkan FCM token
@@ -19,7 +16,7 @@ export async function registerToken(req: AuthRequest, res: Response): Promise<vo
   }
 
   await registerDeviceToken({
-    userId: user.user_id || user.id as number,
+    userId: user.user_id,
     tenantId: user.tenant_id,
     token,
     platform: platform ?? 'android',
@@ -47,17 +44,15 @@ export async function getNotifications(req: AuthRequest, res: Response): Promise
   const limit = 20;
   const offset = (page - 1) * limit;
 
-  const realUserId = user.user_id || user.id as number;
-
   const [notifications, unreadCount] = await Promise.all([
     db.notifications.findMany({
-      where: { user_id: realUserId, tenant_id: user.tenant_id },
+      where: { user_id: user.user_id, tenant_id: user.tenant_id },
       orderBy: { created_at: 'desc' },
       take: limit,
       skip: offset,
     }),
     db.notifications.count({
-      where: { user_id: realUserId, tenant_id: user.tenant_id, is_read: false },
+      where: { user_id: user.user_id, tenant_id: user.tenant_id, is_read: false },
     }),
   ]);
 
@@ -70,10 +65,8 @@ export async function markAllRead(req: AuthRequest, res: Response): Promise<void
   const user = req.user;
   if (!user) { res.status(401).json({ success: false, message: 'Unauthorized' }); return; }
 
-  const realUserId = user.user_id || user.id as number;
-
   await db.notifications.updateMany({
-    where: { user_id: realUserId, tenant_id: user.tenant_id, is_read: false },
+    where: { user_id: user.user_id, tenant_id: user.tenant_id, is_read: false },
     data: { is_read: true },
   });
 
@@ -87,10 +80,9 @@ export async function markOneRead(req: AuthRequest, res: Response): Promise<void
   if (!user) { res.status(401).json({ success: false, message: 'Unauthorized' }); return; }
 
   const id = parseInt(req.params.id as string);
-  const realUserId = user.user_id || user.id as number;
   
   await db.notifications.updateMany({
-    where: { id, user_id: realUserId },
+    where: { id, user_id: user.user_id },
     data: { is_read: true },
   });
 

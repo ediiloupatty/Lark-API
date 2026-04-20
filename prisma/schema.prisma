@@ -87,6 +87,7 @@ model notifications {
   users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([tenant_id], map: "idx_notifications_tenant_id")
+  @@index([user_id, tenant_id, is_read], map: "idx_notifications_user_tenant_read")
 }
 
 model device_tokens {

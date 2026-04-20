@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { db } from '../config/db';
 import { AuthRequest } from '../middlewares/authMiddleware';
+import { sendPushToAdmins, saveNotification } from '../services/firebaseService';
 
 function extractOrders(input: any): any[] {
   const paths = [
@@ -149,7 +150,6 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
 
      // Trigger Push Notification & Simpan Notif ke Inbox untuk order yang baru masuk
      try {
-       const { sendPushToAdmins, saveNotification } = require('../services/firebaseService');
        const creatorName = req.user?.nama || req.user?.username || 'Karyawan';
        
        for (const result of results) {
