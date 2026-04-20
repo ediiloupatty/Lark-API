@@ -65,10 +65,14 @@ export const addService = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ status: 'error', message: 'Nama layanan dan harga (diatas 0) wajib diisi.' });
     }
 
-    let finalOutletId = outlet_id || null;
+    let finalOutletId = outlet_id ? parseInt(outlet_id) : null;
     if (!isAdmin) {
       if (!staffOutletId) return res.status(400).json({ status: 'error', message: 'Karyawan belum terhubung ke outlet.' });
       finalOutletId = staffOutletId;
+    } else if (finalOutletId) {
+      // [SECURITY FIX] Cross-Tenant Outlet IDOR
+      const verifyOutlet = await db.outlets.findFirst({ where: { id: finalOutletId, tenant_id: tenantId } });
+      if (!verifyOutlet) return res.status(403).json({ status: 'error', message: 'Outlet tidak valid atau tidak dimiliki tenant ini.' });
     }
 
     const inserted = await db.$queryRawUnsafe<any[]>(
@@ -104,10 +108,14 @@ export const updateService = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ status: 'error', message: 'Data tidak lengkap atau harga tidak valid.' });
     }
 
-    let finalOutletId = outlet_id || null;
+    let finalOutletId = outlet_id ? parseInt(outlet_id) : null;
     if (!isAdmin) {
       if (!staffOutletId) return res.status(400).json({ status: 'error', message: 'Karyawan belum terhubung ke outlet.' });
       finalOutletId = staffOutletId;
+    } else if (finalOutletId) {
+      // [SECURITY FIX] Cross-Tenant Outlet IDOR
+      const verifyOutlet = await db.outlets.findFirst({ where: { id: finalOutletId, tenant_id: tenantId } });
+      if (!verifyOutlet) return res.status(403).json({ status: 'error', message: 'Outlet tidak valid atau tidak dimiliki tenant ini.' });
     }
 
     let query = `

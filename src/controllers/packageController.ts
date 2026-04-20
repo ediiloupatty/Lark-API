@@ -66,6 +66,10 @@ export const addPackage = async (req: AuthRequest, res: Response) => {
     if (!isAdmin) {
        if (!staffOutletId) return res.status(400).json({ status: 'error', message: 'Karyawan belum terhubung ke outlet.' });
        outlet_id = staffOutletId;
+    } else if (outlet_id) {
+       // [SECURITY FIX] Cross-Tenant Outlet IDOR
+       const verifyOutlet = await db.outlets.findFirst({ where: { id: outlet_id, tenant_id: tenantId } });
+       if (!verifyOutlet) return res.status(403).json({ status: 'error', message: 'Outlet tidak valid atau tidak dimiliki tenant ini.' });
     }
 
     if (!nama || jam <= 0) {
@@ -105,6 +109,10 @@ export const updatePackage = async (req: AuthRequest, res: Response) => {
     if (!isAdmin) {
        if (!staffOutletId) return res.status(400).json({ status: 'error', message: 'Karyawan belum terhubung ke outlet.' });
        outlet_id = staffOutletId;
+    } else if (outlet_id) {
+       // [SECURITY FIX] Cross-Tenant Outlet IDOR
+       const verifyOutlet = await db.outlets.findFirst({ where: { id: outlet_id, tenant_id: tenantId } });
+       if (!verifyOutlet) return res.status(403).json({ status: 'error', message: 'Outlet tidak valid atau tidak dimiliki tenant ini.' });
     }
 
     if (!id || !nama || jam <= 0) {

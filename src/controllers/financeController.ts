@@ -40,6 +40,13 @@ export const addExpense = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ status: 'error', message: 'Kategori dan jumlah wajib diisi.' });
     }
 
+    let finalOutletId = outlet_id ? parseInt(outlet_id) : null;
+    if (finalOutletId) {
+      // [SECURITY FIX] Cross-Tenant Outlet IDOR
+      const verifyOutlet = await db.outlets.findFirst({ where: { id: finalOutletId, tenant_id: tenantId } });
+      if (!verifyOutlet) return res.status(403).json({ status: 'error', message: 'Outlet tidak valid atau tidak dimiliki tenant ini.' });
+    }
+
     const newExpense = await db.expenses.create({
       data: {
         tenant_id: tenantId!,
@@ -48,7 +55,7 @@ export const addExpense = async (req: AuthRequest, res: Response) => {
         jumlah: parseFloat(jumlah),
         metode_bayar: metode_bayar || 'cash',
         tanggal: new Date(tanggal || Date.now()),
-        ...(outlet_id ? { outlet_id: parseInt(outlet_id) } : {})
+        ...(finalOutletId ? { outlet_id: finalOutletId } : {})
       }
     });
 
@@ -77,6 +84,13 @@ export const updateExpense = async (req: AuthRequest, res: Response) => {
     const existing = await db.expenses.findFirst({ where: { id: expId, tenant_id: tenantId } });
     if (!existing) return res.status(404).json({ status: 'error', message: 'Pengeluaran tidak ditemukan.' });
 
+    let finalOutletId = outlet_id ? parseInt(outlet_id) : null;
+    if (finalOutletId) {
+      // [SECURITY FIX] Cross-Tenant Outlet IDOR
+      const verifyOutlet = await db.outlets.findFirst({ where: { id: finalOutletId, tenant_id: tenantId } });
+      if (!verifyOutlet) return res.status(403).json({ status: 'error', message: 'Outlet tidak valid atau tidak dimiliki tenant ini.' });
+    }
+
     await db.expenses.update({
       where: { id: expId },
       data: {
@@ -85,7 +99,7 @@ export const updateExpense = async (req: AuthRequest, res: Response) => {
         jumlah: parseFloat(jumlah),
         metode_bayar: metode_bayar || 'cash',
         tanggal: new Date(tanggal || existing.tanggal),
-        ...(outlet_id ? { outlet_id: parseInt(outlet_id) } : {})
+        ...(finalOutletId ? { outlet_id: finalOutletId } : {})
       }
     });
 

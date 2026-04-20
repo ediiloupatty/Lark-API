@@ -87,7 +87,13 @@ export const addStaff = async (req: AuthRequest, res: Response) => {
       passwordPlain = finalUsername;
     }
     const hashedPassword = await bcrypt.hash(passwordPlain, 10);
-    const finalOutletId = outlet_id ? parseInt(outlet_id) : null;
+    
+    let finalOutletId = outlet_id ? parseInt(outlet_id) : null;
+    if (finalOutletId) {
+      // [SECURITY FIX] Cross-Tenant Outlet IDOR
+      const verifyOutlet = await db.outlets.findFirst({ where: { id: finalOutletId, tenant_id: tenantId } });
+      if (!verifyOutlet) return res.status(403).json({ status: 'error', message: 'Outlet tidak valid atau tidak dimiliki tenant ini.' });
+    }
 
     const inserted = await db.$queryRawUnsafe<any[]>(
       `INSERT INTO users (tenant_id, username, password, nama, no_hp, alamat, role, outlet_id, is_active)
@@ -121,10 +127,16 @@ export const updateStaff = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ status: 'error', message: 'ID Akses, Nama Lengkap, dan User ID wajib diisi.' });
     }
 
-    const exist = await db.$queryRawUnsafe<any[]>(`SELECT id FROM users WHERE username = $1 AND id != $2`, finalUsername, finalUserId);
+    // [SECURITY FIX] Scope uniqueness check to tenant
+    const exist = await db.$queryRawUnsafe<any[]>(`SELECT id FROM users WHERE username = $1 AND id != $2 AND tenant_id = $3`, finalUsername, finalUserId, tenantId);
     if (exist.length > 0) return res.status(400).json({ status: 'error', message: `Gagal! ID Akses '${finalUsername}' sudah digunakan akun lain.` });
 
-    const finalOutletId = outlet_id ? parseInt(outlet_id) : null;
+    let finalOutletId = outlet_id ? parseInt(outlet_id) : null;
+    if (finalOutletId) {
+      // [SECURITY FIX] Cross-Tenant Outlet IDOR
+      const verifyOutlet = await db.outlets.findFirst({ where: { id: finalOutletId, tenant_id: tenantId } });
+      if (!verifyOutlet) return res.status(403).json({ status: 'error', message: 'Outlet tidak valid atau tidak dimiliki tenant ini.' });
+    }
 
     let query = `UPDATE users SET nama = $1, username = $2, no_hp = $3, alamat = $4, outlet_id = $5`;
     const params: any[] = [nama, finalUsername, no_hp || '', alamat || '', finalOutletId];

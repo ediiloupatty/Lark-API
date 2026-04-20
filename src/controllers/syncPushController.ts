@@ -131,13 +131,35 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
          const orderNumber = `INV-${tenantId}-${dte}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
          // Build relation payload for Order creation with Prisma
-         const orderDetailsPayload = items.map((item: any) => ({
-             service_id: item.service_id || item.layanan_id || null,
-             jumlah: item.jumlah || item.qty ? parseInt(item.jumlah || item.qty) : null,
-             berat: item.berat ? parseFloat(item.berat) : null,
-             harga: parseFloat(item.price || item.harga || 0),
-             subtotal: parseFloat(item.subtotal || 0)
-         }));
+         let serverCalculatedTotal = 0;
+         const orderDetailsPayload: any[] = [];
+         
+         for (const item of items) {
+             const serviceId = parseInt(item.service_id || item.layanan_id || '0');
+             const jumlah = item.jumlah || item.qty ? parseInt(item.jumlah || item.qty) : null;
+             const berat = item.berat ? parseFloat(item.berat) : null;
+             const chargeBasis = (berat && berat > 0) ? berat : (jumlah && jumlah > 0 ? jumlah : 1);
+
+             if (serviceId > 0) {
+                 const serviceInfo = await tx.services.findFirst({
+                     where: { id: serviceId, tenant_id: tenantId }
+                 });
+                 // [SECURITY FIX] Harga diambil valid dari DB, bukan klien, cegah manipulasi!
+                 const serverPrice = serviceInfo ? parseFloat(serviceInfo.harga_per_kg || 0) : parseFloat(item.price || item.harga || 0);
+                 const subtotal = chargeBasis * serverPrice;
+                 serverCalculatedTotal += subtotal;
+
+                 orderDetailsPayload.push({
+                     service_id: serviceId,
+                     jumlah: jumlah,
+                     berat: berat,
+                     harga: serverPrice,
+                     subtotal: subtotal
+                 });
+             }
+         }
+         
+         const finalTotalAmount = serverCalculatedTotal > 0 ? serverCalculatedTotal : totalAmount;
 
          // Ensure the enums match the schema
          let safeMethod: any = paymentMethod === 'cash' ? 'cash' : 'transfer'; // simplified mapping 
@@ -148,7 +170,7 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
                tenant_id: tenantId,
                customer_id: customerId,
                tracking_code: orderNumber,
-               total_harga: totalAmount,
+               total_harga: finalTotalAmount,
                metode_antar: metodeAntar === 'jemput' ? 'jemput' : 'antar_sendiri',
                outlet_id: safeOutletId,
                user_id: req.user?.user_id,
@@ -157,7 +179,7 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
                   create: [{
                     tenant_id: tenantId,
                     metode_pembayaran: safeMethod,
-                    jumlah_bayar: totalAmount,
+                    jumlah_bayar: finalTotalAmount,
                     outlet_id: safeOutletId
                   }]
                },
