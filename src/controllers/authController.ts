@@ -17,6 +17,39 @@ import { sendPasswordResetEmail } from '../utils/mailer';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
+const IS_PROD = process.env.NODE_ENV === 'production';
+const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 hari
+
+/**
+ * Helper: set httpOnly cookie berisi JWT.
+ * Web browser membaca token ini otomatis tanpa JS — aman dari XSS.
+ * Mobile App tidak terpengaruh karena menggunakan Bearer token di header.
+ */
+function setAuthCookie(res: Response, token: string): void {
+  res.cookie('lark_token', token, {
+    httpOnly: true,                                      // Tidak accessible via JS
+    secure: IS_PROD,                                     // HTTPS only di produksi
+    sameSite: IS_PROD ? 'none' : 'lax',                 // Cross-origin untuk prod (Vercel ↔ VPS)
+    maxAge: COOKIE_MAX_AGE,
+    path: '/',
+  });
+}
+
+/**
+ * Logout: hapus httpOnly cookie dari browser.
+ * Mobile App cukup hapus token dari storage lokal mereka sendiri.
+ */
+export const logoutAdmin = (_req: Request, res: Response) => {
+  res.clearCookie('lark_token', {
+    httpOnly: true,
+    secure: IS_PROD,
+    sameSite: IS_PROD ? 'none' : 'lax',
+    path: '/',
+  });
+  return res.status(200).json({ success: true, message: 'Logout berhasil.' });
+};
+
+
 export const loginAdmin = async (req: Request, res: Response) => {
   const ipAddress = req.ip || req.socket?.remoteAddress || '0.0.0.0';
   const userAgent = req.headers['user-agent'] || 'unknown';
@@ -101,6 +134,10 @@ export const loginAdmin = async (req: Request, res: Response) => {
         jwtSecret,
         { expiresIn: '24h' }
       );
+
+      // Set httpOnly cookie untuk Web browser (lebih aman dari localStorage)
+      // Mobile App tetap membaca token dari response body
+      setAuthCookie(res, token);
 
       return res.status(200).json({
         status: 'success',
@@ -199,6 +236,8 @@ export const loginStaff = async (req: Request, res: Response) => {
         jwtSecret,
         { expiresIn: '24h' }
       );
+      // Set httpOnly cookie untuk Web browser
+      setAuthCookie(res, token);
 
       return res.status(200).json({
         status: 'success',
@@ -683,6 +722,8 @@ export const googleLogin = async (req: Request, res: Response) => {
       jwtSecret,
       { expiresIn: '24h' }
     );
+    // Set httpOnly cookie untuk Web browser
+    setAuthCookie(res, token);
 
     return res.status(200).json({
       status: 'success',

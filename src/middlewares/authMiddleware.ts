@@ -12,9 +12,24 @@ export interface AuthRequest extends Request {
   };
 }
 
+/**
+ * Middleware autentikasi yang mendukung dual-mode:
+ *   1. httpOnly Cookie  → Web browser (lebih aman, tidak accessible JS)
+ *   2. Bearer Token     → Mobile App / legacy sessions (backward compatible)
+ *
+ * Priority: cookie > Authorization header
+ */
 export const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction) => {
+  // 1. Coba baca dari httpOnly cookie (web browser)
+  const cookieToken: string | undefined = (req as any).cookies?.lark_token;
+
+  // 2. Fallback ke Authorization Bearer header (mobile / legacy)
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  const bearerToken = authHeader && authHeader.startsWith('Bearer ')
+    ? authHeader.split(' ')[1]
+    : undefined;
+
+  const token = cookieToken || bearerToken;
 
   if (!token) {
     return res.status(401).json({ success: false, error: 'Akses ditolak. Token tidak disediakan.' });

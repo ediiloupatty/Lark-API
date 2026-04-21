@@ -20,6 +20,7 @@ import { maintenanceMiddleware } from './middlewares/maintenanceMiddleware';
 
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import cookieParser from 'cookie-parser';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -120,6 +121,9 @@ app.use(cors({
 // Payload Limits: Mencegah serangan pengiriman file/teks raksasa yang menyebabkan Server Crash (Out of Memory)
 app.use(express.json({ limit: '10mb' })); 
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Parse cookies — dibutuhkan oleh authMiddleware untuk membaca httpOnly token
+app.use(cookieParser());
+
 
 // ── Maintenance Mode ─────────────────────────────────────────────────────────
 // Harus didaftarkan SEBELUM semua route agar intercept semua request.

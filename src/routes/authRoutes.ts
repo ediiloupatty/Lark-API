@@ -1,5 +1,13 @@
 import { Router } from 'express';
-import { loginAdmin, loginStaff, registerAdmin, forgotPassword, resetPassword, googleLogin } from '../controllers/authController';
+import {
+  loginAdmin,
+  loginStaff,
+  registerAdmin,
+  forgotPassword,
+  resetPassword,
+  googleLogin,
+  logoutAdmin,
+} from '../controllers/authController';
 import { loginRateLimiter } from '../middlewares/rateLimiter';
 
 const router = Router();
@@ -11,5 +19,7 @@ router.post('/register',        registerAdmin);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password',  resetPassword);
 router.post('/google',          loginRateLimiter, googleLogin);
+// Logout: hapus httpOnly cookie dari browser (mobile cukup hapus token lokal mereka)
+router.post('/logout',          logoutAdmin);
 
 export default router;
