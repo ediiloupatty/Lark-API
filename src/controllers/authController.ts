@@ -465,9 +465,9 @@ export const googleLogin = async (req: Request, res: Response) => {
   const userAgent = req.headers['user-agent'] || 'unknown';
 
   try {
-    const { credential } = req.body;
+    const { credential, access_token } = req.body;
 
-    if (!credential) {
+    if (!credential && !access_token) {
       return res.status(400).json({
         status: 'error',
         success: false,
@@ -484,22 +484,50 @@ export const googleLogin = async (req: Request, res: Response) => {
       });
     }
 
-    // 1. Verifikasi ID Token menggunakan Google Auth Library
-    //    Ini memastikan token benar-benar dikeluarkan oleh Google dan ditujukan untuk Client ID kita
-    let payload;
-    try {
-      const ticket = await googleClient.verifyIdToken({
-        idToken: credential,
-        audience: GOOGLE_CLIENT_ID,
-      });
-      payload = ticket.getPayload();
-    } catch (verifyErr: any) {
-      console.error('[GoogleLogin] Token verification failed:', verifyErr.message);
-      return res.status(401).json({
-        status: 'error',
-        success: false,
-        error: 'Token Google tidak valid atau sudah kadaluarsa. Silakan coba lagi.',
-      });
+    // 1. Resolve payload dari credential (ID token) ATAU access_token
+    let payload: { sub: string; email: string; name?: string; picture?: string } | null = null;
+
+    if (credential) {
+      // --- Path A: ID Token via verifyIdToken (GoogleLogin component) ---
+      try {
+        const ticket = await googleClient.verifyIdToken({
+          idToken: credential,
+          audience: GOOGLE_CLIENT_ID,
+        });
+        const raw = ticket.getPayload();
+        if (raw && raw.sub && raw.email) {
+          payload = { sub: raw.sub, email: raw.email, name: raw.name, picture: raw.picture };
+        }
+      } catch (verifyErr: any) {
+        console.error('[GoogleLogin] ID token verification failed:', verifyErr.message);
+        return res.status(401).json({
+          status: 'error',
+          success: false,
+          error: 'Token Google tidak valid atau sudah kadaluarsa. Silakan coba lagi.',
+        });
+      }
+    } else {
+      // --- Path B: Access Token via Google userinfo endpoint (useGoogleLogin hook) ---
+      try {
+        const userInfoRes = await fetch(
+          `https://www.googleapis.com/oauth2/v3/userinfo`,
+          { headers: { Authorization: `Bearer ${access_token}` } }
+        );
+        if (!userInfoRes.ok) {
+          throw new Error(`Google userinfo responded ${userInfoRes.status}`);
+        }
+        const info = await userInfoRes.json() as { sub: string; email: string; name?: string; picture?: string };
+        if (info.sub && info.email) {
+          payload = { sub: info.sub, email: info.email, name: info.name, picture: info.picture };
+        }
+      } catch (err: any) {
+        console.error('[GoogleLogin] Access token userinfo failed:', err.message);
+        return res.status(401).json({
+          status: 'error',
+          success: false,
+          error: 'Akses Google tidak valid atau sudah kadaluarsa. Silakan coba lagi.',
+        });
+      }
     }
 
     if (!payload || !payload.sub || !payload.email) {
