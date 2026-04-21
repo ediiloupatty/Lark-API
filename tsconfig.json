@@ -8,5 +8,5 @@
     "skipLibCheck": true,
     "outDir": "./dist"
   },
-  "include": ["src/**/*", "prisma.config.ts"]
+  "include": ["src/**/*", "prisma.config.ts", "patch_order.ts"]
 }
