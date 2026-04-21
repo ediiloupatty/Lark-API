@@ -3,6 +3,7 @@ import { db } from '../config/db';
 import { AuthRequest } from '../middlewares/authMiddleware';
 import crypto from 'crypto';
 import { sendPushToAdmins, saveNotification } from '../services/firebaseService';
+import { sendWhatsApp, buildNewOrderMessage, buildStatusUpdateMessage } from '../services/whatsappService';
 
 function generateTrackingCode() {
   return 'ORD-' + crypto.randomBytes(3).toString('hex').toUpperCase();
@@ -411,6 +412,27 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       }
     }).catch(() => {});
 
+    // ── Kirim WhatsApp otomatis ke pelanggan via Fonnte (async) ──
+    db.customers.findFirst({ where: { id: parseInt(customer_id), tenant_id: tenantId! } })
+      .then(async (cust) => {
+        if (!cust?.no_hp) return;
+        const tenant = await db.tenants.findUnique({ where: { id: tenantId! }, select: { nama: true } });
+        const firstItem = Array.isArray(items) && items.length > 0 ? items[0] : null;
+        const svc = firstItem?.service_id
+          ? await db.services.findFirst({ where: { id: parseInt(firstItem.service_id) }, select: { nama_layanan: true } })
+          : null;
+        const msg = buildNewOrderMessage({
+          nama_toko: tenant?.nama || 'Laundry Kami',
+          nama_pelanggan: cust.nama || 'Pelanggan',
+          tracking_code: result.trackingCode,
+          total_harga: result.totalHarga,
+          estimasi_tanggal: req.body.estimasi_tanggal || new Date(Date.now() + 3*24*60*60*1000).toISOString(),
+          layanan_nama: svc?.nama_layanan,
+        });
+        sendWhatsApp({ tenantId: tenantId!, phone: cust.no_hp, message: msg }).catch(() => {});
+      })
+      .catch(() => {});
+
   } catch (err: any) {
     console.error('[CreateOrder Error]', err);
     res.status(500).json({ status: 'error', message: 'Gagal memproses pesanan.' });
@@ -447,6 +469,28 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
       status: 'success',
       message: 'Status pesanan berhasil diperbarui.'
     });
+
+    // ── Kirim WA ke pelanggan saat status berubah (async, tidak block response) ──
+    const WA_NOTIFY_STATUSES = ['siap_diambil', 'siap_diantar', 'selesai'];
+    if (WA_NOTIFY_STATUSES.includes(status)) {
+      db.$queryRawUnsafe<any[]>(
+        `SELECT o.tracking_code, c.no_hp, c.nama as nama_pelanggan, t.nama as nama_toko
+         FROM orders o
+         JOIN customers c ON o.customer_id = c.id
+         JOIN tenants t ON o.tenant_id = t.id
+         WHERE o.id = $1`, parseInt(String(id))
+      ).then(async (rows) => {
+        if (!rows[0]?.no_hp) return;
+        const r = rows[0];
+        const msg = buildStatusUpdateMessage({
+          nama_toko: r.nama_toko || 'Laundry Kami',
+          nama_pelanggan: r.nama_pelanggan || 'Pelanggan',
+          tracking_code: r.tracking_code,
+          status,
+        });
+        if (msg) sendWhatsApp({ tenantId: tenantId!, phone: r.no_hp, message: msg }).catch(() => {});
+      }).catch(() => {});
+    }
   } catch (err: any) {
     console.error('[UpdateOrderStatus Error]', err);
     res.status(500).json({ status: 'error', message: 'Gagal memperbarui status.' });
