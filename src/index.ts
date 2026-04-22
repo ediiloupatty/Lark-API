@@ -21,6 +21,7 @@ import { maintenanceMiddleware } from './middlewares/maintenanceMiddleware';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import cookieParser from 'cookie-parser';
+import { setCsrfCookie, verifyCsrf } from './middlewares/csrfMiddleware';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -132,9 +133,15 @@ app.use(maintenanceMiddleware);
 // Connect to Database (with retry)
 const dbReady = checkConnection();
 
+// ── CSRF Protection ──────────────────────────────────────────────────────────
+// Set CSRF cookie pada setiap response (jika belum ada)
+app.use(setCsrfCookie);
+
 // Register Routes
+// Auth routes: TIDAK pakai CSRF (session belum terbentuk saat login/register)
 app.use('/api/v1/auth', authRoutes);
-app.use('/api/v1/sync', syncRoutes);
+// Sync routes: PAKAI CSRF (mutating requests pada session aktif)
+app.use('/api/v1/sync', verifyCsrf, syncRoutes);
 
 // [Public] Landing page stats — no auth required
 app.get('/api/v1/public/landing-stats', getLandingStats);
@@ -216,6 +223,12 @@ async function bootstrap() {
         await client.query(`CREATE INDEX IF NOT EXISTS idx_device_tokens_tenant_id ON device_tokens(tenant_id)`);
         await client.query(`CREATE INDEX IF NOT EXISTS idx_device_tokens_user_id ON device_tokens(user_id)`);
         console.log('[Bootstrap] ✅ Tabel device_tokens sudah siap.');
+
+        // H2: Token Revocation — tambahkan kolom token_version jika belum ada
+        await client.query(`
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 0
+        `);
+        console.log('[Bootstrap] ✅ Kolom token_version sudah siap.');
       } catch (e: any) {
         if (e.code !== '42P07') {
           console.warn('[Bootstrap] device_tokens warning:', e.message);

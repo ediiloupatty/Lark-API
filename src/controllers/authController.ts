@@ -36,12 +36,52 @@ function setAuthCookie(res: Response, token: string): void {
 }
 
 /**
- * Logout: hapus httpOnly cookie dari browser.
- * Mobile App cukup hapus token dari storage lokal mereka sendiri.
+ * Logout: hapus httpOnly cookie + invalidasi semua JWT aktif.
+ * 
+ * SECURITY (H2 Token Revocation):
+ * - Increment token_version di DB sehingga semua JWT lama ditolak
+ * - Ini berlaku untuk SEMUA perangkat (web + mobile) sekaligus
+ * - Mobile App perlu login ulang setelah owner logout dari web
  */
-export const logoutAdmin = (_req: Request, res: Response) => {
+export const logoutAdmin = async (req: Request, res: Response) => {
+  // Increment token_version agar semua JWT lama invalid
+  try {
+    // Coba decode JWT dari cookie/header untuk mendapatkan user_id
+    const cookieToken: string | undefined = (req as any).cookies?.lark_token;
+    const authHeader = req.headers['authorization'];
+    const bearerToken = authHeader && authHeader.startsWith('Bearer ')
+      ? authHeader.split(' ')[1]
+      : undefined;
+    const token = cookieToken || bearerToken;
+
+    if (token) {
+      const jwtSecret = process.env.JWT_SECRET || '';
+      try {
+        const decoded: any = jwt.verify(token, jwtSecret);
+        if (decoded.user_id) {
+          await db.users.update({
+            where: { id: decoded.user_id },
+            data: { token_version: { increment: 1 } },
+          });
+        }
+      } catch {
+        // Token mungkin sudah expired — tidak masalah, tetap clear cookie
+      }
+    }
+  } catch (e) {
+    // DB error — tetap lanjutkan clear cookie
+    console.error('[Logout] token_version increment failed:', e);
+  }
+
   res.clearCookie('lark_token', {
     httpOnly: true,
+    secure: IS_PROD,
+    sameSite: IS_PROD ? 'none' : 'lax',
+    path: '/',
+  });
+  // Juga hapus CSRF cookie
+  res.clearCookie('lark_csrf', {
+    httpOnly: false,
     secure: IS_PROD,
     sameSite: IS_PROD ? 'none' : 'lax',
     path: '/',
@@ -130,6 +170,7 @@ export const loginAdmin = async (req: Request, res: Response) => {
           role: role,
           tenant_id: user.tenant_id,
           outlet_id: user.outlet_id,
+          token_version: user.token_version ?? 0,
         },
         jwtSecret,
         { expiresIn: '24h' }
@@ -232,6 +273,7 @@ export const loginStaff = async (req: Request, res: Response) => {
           role: normalizeAppRole(user.role),
           tenant_id: user.tenant_id,
           outlet_id: user.outlet_id,
+          token_version: user.token_version ?? 0,
         },
         jwtSecret,
         { expiresIn: '24h' }
@@ -483,6 +525,7 @@ export const resetPassword = async (req: Request, res: Response) => {
         password:            newHash,
         reset_token:         null,
         reset_token_expires: null,
+        token_version:       { increment: 1 }, // H2: Invalidasi semua JWT aktif
       },
     });
 
@@ -718,6 +761,7 @@ export const googleLogin = async (req: Request, res: Response) => {
         role,
         tenant_id: user.tenant_id,
         outlet_id: user.outlet_id,
+        token_version: user.token_version ?? 0,
       },
       jwtSecret,
       { expiresIn: '24h' }

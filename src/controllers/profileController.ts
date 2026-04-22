@@ -134,9 +134,9 @@ export const changePassword = async (req: AuthRequest, res: Response) => {
     }
 
     const hashed = await bcrypt.hash(new_password, 10);
-    await db.$queryRawUnsafe(`UPDATE users SET password = $1 WHERE id = $2`, hashed, userId);
+    await db.$queryRawUnsafe(`UPDATE users SET password = $1, token_version = COALESCE(token_version, 0) + 1 WHERE id = $2`, hashed, userId);
 
-    res.json({ status: 'success', message: 'Password berhasil diubah.' });
+    res.json({ status: 'success', message: 'Password berhasil diubah. Semua sesi aktif akan di-logout.' });
   } catch (err: any) {
     console.error('[ChangePassword Error]', err);
     res.status(500).json({ status: 'error', message: 'Gagal mengubah password.' });
