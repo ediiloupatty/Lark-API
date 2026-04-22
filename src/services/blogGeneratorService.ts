@@ -132,38 +132,62 @@ function filterRelevantNews(items: RssItem[]): RssItem[] {
   });
 }
 
-// ── Gemini API Call ───────────────────────────────────────────────────────────
+// ── Gemini API Call with Retry ────────────────────────────────────────────────
+const GEMINI_MODELS = [
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-lite',
+  'gemini-1.5-flash',
+];
+
 async function callGemini(prompt: string): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY tidak ditemukan di .env');
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{ text: prompt }]
-        }],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 4096,
-        },
-      }),
-    }
-  );
+  for (const model of GEMINI_MODELS) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        console.log(`[BlogGen] 🤖 Trying ${model} (attempt ${attempt}/3)...`);
+        
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 4096,
+              },
+            }),
+          }
+        );
 
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`Gemini API error ${res.status}: ${errorText}`);
+        if (res.status === 429) {
+          console.warn(`[BlogGen] ⏳ Rate limited (${model}), waiting 30s...`);
+          await new Promise(r => setTimeout(r, 30000));
+          continue;
+        }
+
+        if (!res.ok) {
+          const errText = await res.text();
+          console.warn(`[BlogGen] ⚠️ ${model} error ${res.status}: ${errText.slice(0, 200)}`);
+          break; // Try next model
+        }
+
+        const json = await res.json();
+        const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) throw new Error('Gemini response kosong');
+        
+        console.log(`[BlogGen] ✅ ${model} berhasil!`);
+        return text;
+      } catch (e: any) {
+        if (attempt === 3) console.warn(`[BlogGen] ❌ ${model} gagal setelah 3 percobaan`);
+      }
+    }
   }
 
-  const json = await res.json();
-  const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error('Gemini response kosong');
-  
-  return text;
+  throw new Error('Semua model Gemini gagal. Coba lagi nanti.');
 }
 
 // ── Generate Article ──────────────────────────────────────────────────────────
