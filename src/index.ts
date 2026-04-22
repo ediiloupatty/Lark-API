@@ -49,8 +49,20 @@ app.use('/api', globalLimiter);
 const allowedOrigins = [
   'http://localhost:5173', // Web Lokal Dev
   'http://127.0.0.1:5173',
+  'https://larklaundry.com',         // Web Live (non-www)
+  'https://www.larklaundry.com',     // Web Live (www — Vercel)
   process.env.VITE_FRONTEND_URL || 'https://lark-laundry.vercel.app' // Web Live Produksi
 ];
+
+/** Cek apakah origin diizinkan (termasuk wildcard Vercel dan jaringan lokal) */
+function isAllowedOrigin(origin: string): boolean {
+  if (allowedOrigins.includes(origin)) return true;
+  if (origin.endsWith('.vercel.app')) return true;
+  if (origin.endsWith('.larklaundry.com') || origin === 'https://larklaundry.com') return true;
+  if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) return true;
+  if (origin.startsWith('http://192.168.') || origin.startsWith('http://10.')) return true;
+  return false;
+}
 
 app.use((req: Request, res: Response, next) => {
   const origin = req.headers.origin;
@@ -59,15 +71,7 @@ app.use((req: Request, res: Response, next) => {
   const forwardedHost = req.headers['x-forwarded-host'] as string | undefined;
 
   // 1. Izinkan request dari Web yang memiliki origin terdaftar atau dari jaringan lokal (untuk dev)
-  if (
-    origin && 
-    (allowedOrigins.includes(origin) || 
-     origin.endsWith('.vercel.app') || 
-     origin.startsWith('http://localhost') || 
-     origin.startsWith('http://127.0.0.1') || 
-     origin.startsWith('http://192.168.') ||
-     origin.startsWith('http://10.'))
-  ) {
+  if (origin && isAllowedOrigin(origin)) {
     return next();
   }
 
@@ -98,16 +102,11 @@ app.use(cors({
     // 1. Izinkan koneksi tanpa origin (seperti curl, postman, Mobile App) yang lolos pengecekan custom header
     if (!origin) return callback(null, true);
     
-    // 2. Izinkan domain web terdaftar
-    if (allowedOrigins.includes(origin)) return callback(null, true);
+    // 2. Izinkan domain web terdaftar (termasuk www dan non-www)
+    if (isAllowedOrigin(origin)) return callback(null, true);
 
     // 3. Toleransi untuk Emulator Mobile / Capacitor yang kadang mengirimkan origin unik
-    if (origin.startsWith('http://localhost') || origin.startsWith('file://') || origin.startsWith('android-app://') || origin.startsWith('capacitor://')) {
-      return callback(null, true);
-    }
-    
-    // 4. Wildcard untuk URL Vercel (sangat berguna untuk deploy tanpa perlu ganti-ganti .env)
-    if (origin.endsWith('.vercel.app')) {
+    if (origin.startsWith('file://') || origin.startsWith('android-app://') || origin.startsWith('capacitor://')) {
       return callback(null, true);
     }
     
