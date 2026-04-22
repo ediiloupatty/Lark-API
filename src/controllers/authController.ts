@@ -36,6 +36,19 @@ function setAuthCookie(res: Response, token: string): void {
 }
 
 /**
+ * Helper: deteksi apakah request dari Mobile App.
+ * Mobile App mengirim header `X-App-Platform: LarkMobile`.
+ * Web browser TIDAK mengirim header ini.
+ *
+ * SECURITY (H-3): Token hanya dikirim di response body untuk Mobile App.
+ * Web browser mendapatkan token via httpOnly cookie saja — tidak pernah
+ * menyentuh JavaScript, sehingga aman dari XSS/extension/DevTools capture.
+ */
+function isMobileApp(req: Request): boolean {
+  return req.headers['x-app-platform'] === 'LarkMobile';
+}
+
+/**
  * Logout: hapus httpOnly cookie + invalidasi semua JWT aktif.
  * 
  * SECURITY (H2 Token Revocation):
@@ -185,7 +198,8 @@ export const loginAdmin = async (req: Request, res: Response) => {
         success: true,
         message: 'Login berhasil',
         data: {
-          token,
+          // H-3: Token hanya dikirim ke Mobile App. Web mendapat token via httpOnly cookie.
+          ...(isMobileApp(req) ? { token } : {}),
           user: {
             id: user.id,
             username: user.username,
@@ -286,7 +300,8 @@ export const loginStaff = async (req: Request, res: Response) => {
         success: true,
         message: 'Login Berhasil!',
         data: {
-          token,
+          // H-3: Token hanya dikirim ke Mobile App.
+          ...(isMobileApp(req) ? { token } : {}),
           user: {
             id: user.id,
             username: user.username,
@@ -405,7 +420,8 @@ export const registerAdmin = async (req: Request, res: Response) => {
     return res.status(201).json({ success: true, message: 'Pendaftaran admin laundry berhasil! Silakan login.' });
   } catch (err: any) {
     console.error('[RegisterAdmin]', err);
-    return res.status(500).json({ success: false, error: 'Pendaftaran gagal. ' + err.message });
+    // M-5: Jangan expose err.message ke client — bisa berisi detail internal DB
+    return res.status(500).json({ success: false, error: 'Pendaftaran gagal. Silakan coba lagi atau hubungi admin.' });
   }
 };
 
@@ -774,7 +790,8 @@ export const googleLogin = async (req: Request, res: Response) => {
       success: true,
       message: 'Login dengan Google berhasil!',
       data: {
-        token,
+        // H-3: Token hanya dikirim ke Mobile App.
+        ...(isMobileApp(req) ? { token } : {}),
         user: {
           id: user.id,
           username: user.username,
