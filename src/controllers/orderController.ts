@@ -594,14 +594,24 @@ export const deleteOrder = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ status: 'error', message: 'Pesanan tidak ditemukan.' });
     }
 
-    // Admin: hard delete; karyawan: soft cancel (set status = dibatalkan)
+    // M-1: Admin → soft delete (status = 'dibatalkan') untuk mempertahankan audit trail.
+    // Hard delete menghilangkan semua bukti transaksi — berbahaya untuk rekonsiliasi keuangan.
     const isAdmin = role === 'admin' || role === 'super_admin' || role === 'owner';
     if (isAdmin) {
-      // Delete related payments first (FK constraint)
-      await db.$queryRawUnsafe(`DELETE FROM payments WHERE order_id = $1`, orderId);
-      await db.$queryRawUnsafe(`DELETE FROM order_details WHERE order_id = $1`, orderId);
-      await db.$queryRawUnsafe(`DELETE FROM orders WHERE id = $1 AND tenant_id = $2`, orderId, tenantId);
-      return res.json({ status: 'success', message: 'Pesanan berhasil dihapus.' });
+      // Soft delete: set status dibatalkan + tandai deleted_at
+      await db.$queryRawUnsafe(
+        `UPDATE orders SET status = 'dibatalkan', 
+         server_version = CAST(EXTRACT(EPOCH FROM NOW()) * 1000 AS BIGINT),
+         updated_at = NOW()
+         WHERE id = $1 AND tenant_id = $2`,
+        orderId, tenantId
+      );
+      // Batalkan pembayaran yang terkait
+      await db.$queryRawUnsafe(
+        `UPDATE payments SET status_pembayaran = 'dibatalkan' WHERE order_id = $1 AND tenant_id = $2`,
+        orderId, tenantId
+      );
+      return res.json({ status: 'success', message: 'Pesanan berhasil dibatalkan dan diarsipkan.' });
     }
 
     // Non-admin: hanya bisa batalkan pesanan yang masih menunggu

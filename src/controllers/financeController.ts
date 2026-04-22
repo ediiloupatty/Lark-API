@@ -153,6 +153,14 @@ export const getReports = async (req: AuthRequest, res: Response) => {
       outletId = reqOid > 0 ? reqOid : null;
     }
 
+    // M-2: Validasi eksplisit — outletId HARUS integer sebelum masuk ke SQL.
+    // parseInt() sudah menjamin NaN atau integer, tapi ini defense-in-depth.
+    if (outletId !== null && !Number.isInteger(outletId)) {
+      outletId = null;
+    }
+
+    // SAFETY: outletId di titik ini dijamin null | positive integer (dari parseInt + isInteger check).
+    // Interpolasi aman karena integer tidak bisa mengandung karakter SQL injection.
     const outletCond     = outletId ? `AND o.outlet_id = ${outletId}` : '';
     const outletCondPay  = outletId ? `AND COALESCE(p.outlet_id, o.outlet_id) = ${outletId}` : '';
     const outletCondExp  = outletId ? `AND e.outlet_id = ${outletId}` : '';
@@ -371,7 +379,6 @@ export const getReports = async (req: AuthRequest, res: Response) => {
 
     // If no payment confirmation data exists, fall back to staff performance by orders in their outlet
     if (topStaff.length === 0) {
-      const outletCondStaff = outletId ? `AND o.outlet_id = ${outletId}` : '';
       topStaff = await db.$queryRawUnsafe<any[]>(`
         SELECT u.nama,
                COUNT(DISTINCT o.id) AS count,
@@ -383,7 +390,7 @@ export const getReports = async (req: AuthRequest, res: Response) => {
           AND u.role::text = 'karyawan'
           AND o.status NOT IN ('dibatalkan')
           AND DATE(o.tgl_order) BETWEEN $2 AND $3
-          ${outletCondStaff}
+          ${outletCond}
         GROUP BY u.nama ORDER BY total_confirmed DESC LIMIT 5
       `, tenantId, startDate, endDate);
     }

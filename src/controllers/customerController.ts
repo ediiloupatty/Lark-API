@@ -145,6 +145,13 @@ export const deleteCustomer = async (req: AuthRequest, res: Response) => {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) return res.status(403).json({ status: 'error', message: 'Tenant required.' });
 
+    // H-1: Hanya admin/owner yang boleh hapus pelanggan.
+    // Karyawan tidak boleh menghapus data pelanggan untuk mencegah penyalahgunaan.
+    const role = req.user?.role || '';
+    if (role !== 'admin' && role !== 'super_admin' && role !== 'owner') {
+      return res.status(403).json({ status: 'error', message: 'Akses ditolak. Hanya admin yang bisa menghapus pelanggan.' });
+    }
+
     const { id, client_id } = req.body;
 
     // Soft delete
