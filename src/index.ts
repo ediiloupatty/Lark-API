@@ -156,25 +156,27 @@ app.put('/api/v1/expenses',    authenticateToken, updateExpense);
 app.delete('/api/v1/expenses', authenticateToken, deleteExpense);
 
 
-// Health check endpoint — benar-benar test koneksi DB, bukan cuma return OK
+// Health check endpoint — industry-standard format (RFC Health Check Response)
 import { isDbHealthy } from './config/db';
 app.get('/api/v1/health', async (req: Request, res: Response) => {
   const dbHealth = await isDbHealthy();
-  const status = dbHealth.ok ? 'ok' : 'degraded';
+  const status = dbHealth.ok ? 'healthy' : 'degraded';
   const httpCode = dbHealth.ok ? 200 : 503;
 
   res.status(httpCode).json({
     status,
-    message: dbHealth.ok
-      ? 'LarkLaundry Node.js API is running'
-      : 'API running but database is unreachable',
-    db: {
-      connected: dbHealth.ok,
-      latency_ms: dbHealth.latencyMs,
-      ...(dbHealth.error ? { error: dbHealth.error } : {}),
-    },
-    uptime_seconds: Math.floor(process.uptime()),
+    service: 'lark-laundry-api',
+    version: '1.0.0',
+    environment: process.env.NODE_ENV || 'development',
+    uptime: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
+    checks: {
+      database: {
+        status: dbHealth.ok ? 'up' : 'down',
+        latency_ms: dbHealth.latencyMs,
+        ...(dbHealth.error ? { message: dbHealth.error } : {}),
+      },
+    },
   });
 });
 
