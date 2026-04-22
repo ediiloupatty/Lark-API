@@ -118,8 +118,9 @@ export const changePassword = async (req: AuthRequest, res: Response) => {
     if (!old_password || !new_password) {
       return res.status(400).json({ status: 'error', message: 'Password lama dan password baru wajib diisi.' });
     }
-    if ((new_password as string).length < 6) {
-      return res.status(400).json({ status: 'error', message: 'Password baru minimal 6 karakter.' });
+    // L-3: Standardized — minimal 8 karakter (konsisten dengan register dan reset password)
+    if ((new_password as string).length < 8) {
+      return res.status(400).json({ status: 'error', message: 'Password baru minimal 8 karakter.' });
     }
 
     // Fetch current hashed password

@@ -351,6 +351,10 @@ export const registerAdmin = async (req: Request, res: Response) => {
     if (password !== confirm_password) {
       return res.status(400).json({ success: false, error: 'Password dan konfirmasi password tidak cocok!' });
     }
+    // L-3: Standardized password policy — minimal 8 karakter di semua endpoint
+    if ((password as string).trim().length < 8) {
+      return res.status(400).json({ success: false, error: 'Password minimal 8 karakter.' });
+    }
     
     const existingUser = await db.users.findUnique({
       where: { username: username.trim() }

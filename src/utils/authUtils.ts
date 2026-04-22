@@ -20,8 +20,9 @@ export const needsPasswordRehashUpgrade = (storedHash: string): boolean => {
   return isLegacyMd5Hash(storedHash);
 };
 
+// L-1: Cost factor 12 — industry best practice 2026. Slower brute-force offline.
 export const hashPassword = async (plain: string): Promise<string> => {
-  return bcrypt.hash(plain, 10);
+  return bcrypt.hash(plain, 12);
 };
 
 export const normalizeAppRole = (role: string): string => {
