@@ -132,40 +132,47 @@ function filterRelevantNews(items: RssItem[]): RssItem[] {
   });
 }
 
-// ── Gemini API Call with Retry ────────────────────────────────────────────────
-const GEMINI_MODELS = [
-  'gemini-2.0-flash',
-  'gemini-2.0-flash-lite',
-  'gemini-1.5-flash',
+// ── Qwen AI via DashScope (OpenAI-Compatible) ────────────────────────────────
+const QWEN_MODELS = [
+  'qwen-flash-2025-07-28',
+  'qwen3.5-flash',
+  'qwen3-coder-flash',
 ];
 
-async function callGemini(prompt: string): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY tidak ditemukan di .env');
+const DASHSCOPE_BASE = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
 
-  for (const model of GEMINI_MODELS) {
+async function callQwen(prompt: string): Promise<string> {
+  const apiKey = process.env.DASHSCOPE_API_KEY;
+  if (!apiKey) throw new Error('DASHSCOPE_API_KEY tidak ditemukan di .env');
+
+  for (const model of QWEN_MODELS) {
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         console.log(`[BlogGen] 🤖 Trying ${model} (attempt ${attempt}/3)...`);
         
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: {
-                temperature: 0.7,
-                maxOutputTokens: 4096,
+        const res = await fetch(`${DASHSCOPE_BASE}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              {
+                role: 'system',
+                content: 'Kamu adalah penulis blog profesional untuk Lark Laundry, platform manajemen bisnis laundry di Indonesia. Tulis dalam Bahasa Indonesia yang profesional dan mudah dipahami.',
               },
-            }),
-          }
-        );
+              { role: 'user', content: prompt },
+            ],
+            temperature: 0.7,
+            max_tokens: 4096,
+          }),
+        });
 
         if (res.status === 429) {
-          console.warn(`[BlogGen] ⏳ Rate limited (${model}), waiting 30s...`);
-          await new Promise(r => setTimeout(r, 30000));
+          console.warn(`[BlogGen] ⏳ Rate limited (${model}), waiting 10s...`);
+          await new Promise(r => setTimeout(r, 10000));
           continue;
         }
 
@@ -176,18 +183,18 @@ async function callGemini(prompt: string): Promise<string> {
         }
 
         const json = await res.json();
-        const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!text) throw new Error('Gemini response kosong');
+        const text = json?.choices?.[0]?.message?.content;
+        if (!text) throw new Error('Qwen response kosong');
         
         console.log(`[BlogGen] ✅ ${model} berhasil!`);
         return text;
       } catch (e: any) {
-        if (attempt === 3) console.warn(`[BlogGen] ❌ ${model} gagal setelah 3 percobaan`);
+        if (attempt === 3) console.warn(`[BlogGen] ❌ ${model} gagal setelah 3 percobaan: ${e.message}`);
       }
     }
   }
 
-  throw new Error('Semua model Gemini gagal. Coba lagi nanti.');
+  throw new Error('Semua model Qwen gagal. Coba lagi nanti.');
 }
 
 // ── Generate Article ──────────────────────────────────────────────────────────
@@ -228,7 +235,7 @@ FORMAT OUTPUT (HARUS PERSIS):
 ---CONTENT---
 [Konten artikel dalam format HTML. Gunakan tag: <h2>, <h3>, <p>, <ul>, <li>, <strong>. JANGAN gunakan <h1>. Panjang minimal 800 kata.]`;
 
-  const raw = await callGemini(prompt);
+  const raw = await callQwen(prompt);
 
   // Parse response
   const titleMatch = raw.match(/---TITLE---\s*([\s\S]*?)---EXCERPT---/);
