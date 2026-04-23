@@ -240,7 +240,12 @@ async function callQwen(prompt: string): Promise<string> {
       try {
         console.log(`[BlogGen] 🤖 Trying ${model} (attempt ${attempt}/3)...`);
         
+        // Timeout 90 detik untuk API call (hindari hang selamanya)
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 90_000);
+
         const res = await fetch(`${DASHSCOPE_BASE}/chat/completions`, {
+          signal: controller.signal,
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -289,6 +294,8 @@ ATURAN FORMAT KRITIS:
             max_tokens: 5000,
           }),
         });
+
+        clearTimeout(timeout);
 
         if (res.status === 429) {
           console.warn(`[BlogGen] ⏳ Rate limited (${model}), waiting 10s...`);
