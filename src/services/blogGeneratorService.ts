@@ -239,11 +239,24 @@ async function callQwen(prompt: string): Promise<string> {
             messages: [
               {
                 role: 'system',
-                content: 'Kamu adalah penulis blog profesional untuk Lark Laundry, platform manajemen bisnis laundry di Indonesia. Tulis dalam Bahasa Indonesia yang profesional dan mudah dipahami.',
+                content: `Kamu adalah Andi, seorang mantan pemilik laundry kiloan di Surabaya yang sekarang jadi content writer freelance untuk blog Lark Laundry. Kamu punya pengalaman 7 tahun di bisnis laundry dan sangat paham seluk-beluk industri ini dari pengalaman langsung.
+
+GAYA MENULIS (WAJIB IKUTI):
+- Tulis seperti manusia sungguhan yang sedang bercerita ke teman sesama pengusaha laundry. BUKAN seperti robot atau AI.
+- Campur kalimat pendek dan panjang secara ACAK. Kadang 5 kata. Kadang 30 kata dalam satu kalimat yang mengalir natural.
+- Pakai bahasa Indonesia sehari-hari yang profesional tapi tidak kaku. Boleh pakai "nggak", "banget", "nih", "sih", "dong", "deh" secara natural.
+- Sesekali mulai paragraf dengan "Nah,", "Jujur aja,", "Yang menarik,", "Gini ceritanya," atau ekspresi natural lainnya.
+- Sisipkan opini pribadi dan pengalaman (boleh fiktif tapi realistis). Contoh: "Waktu saya masih punya laundry di daerah Rungkut..." atau "Teman saya yang punya laundry di Bekasi pernah cerita..."
+- JANGAN pakai frasa AI yang khas: "Di era digital ini", "Dalam konteks ini", "Perlu diketahui bahwa", "Dengan demikian", "Tak bisa dipungkiri", "Menariknya", "Yang perlu digarisbawahi".
+- JANGAN buat semua paragraf panjangnya sama. Variasi: ada yang 1 kalimat, ada yang 4-5 kalimat.
+- Boleh ada kalimat yang sedikit "imperfect" - seperti tulisan manusia yang tidak selalu sempurna grammarnya.
+- Tambahkan detail spesifik lokal: nama daerah, harga real, merek produk nyata (Rinso, Downy, Molto, dll).
+- Sesekali ajak pembaca berpikir dengan pertanyaan retoris yang natural.`,
               },
               { role: 'user', content: prompt },
             ],
-            temperature: 0.7,
+            temperature: 0.9,
+            top_p: 0.95,
             max_tokens: 4096,
           }),
         });
@@ -296,36 +309,61 @@ async function generateArticle(newsItems: RssItem[], previousTopics: string = ''
     ? `\nARTIKEL YANG SUDAH ADA DI DATABASE (DILARANG KERAS menulis topik yang sama atau mirip):\n${existingTopics.map((t, i) => `${i + 1}. ${t}`).join('\n')}\nKamu WAJIB membuat topik yang BENAR-BENAR BARU dan BERBEDA dari semua judul di atas. Jangan pakai judul yang mirip, jangan pakai sudut pandang yang sama, dan jangan pakai kata kunci utama yang sama.\n`
     : '';
 
-  const prompt = `Kamu adalah penulis blog profesional untuk Lark Laundry, platform manajemen bisnis laundry di Indonesia.
+  const prompt = `Buat 1 artikel blog untuk website Lark Laundry. Ambil inspirasi dari berita-berita ini, tapi JANGAN copy-paste. Kamu harus menulis ulang total dengan gaya sendiri.
 
-Dari berita-berita berikut, buatkan 1 artikel blog UNIK dalam Bahasa Indonesia yang relevan untuk pelaku bisnis laundry/UMKM. Jika berita tidak terkait laundry, jadikan itu sebagai studi kasus, cerita lucu, tren viral, inspirasi nostalgia, atau pelajaran bisnis, TAPI selalu hubungkan kembali (bridge) ke operasional bisnis laundry agar relevan dan tidak membingungkan CEO atau pembaca kami.
-
-Berita Sumber:
+Berita Referensi:
 ${newsContext}
 ${existingTopicsBlock}
-${previousTopics ? `TOPIK YANG BARU SAJA DITULIS HARI INI (WAJIB PILIH TOPIK YANG BERBEDA TOTAL, BUKAN VARIASI DARI TOPIK INI):\n${previousTopics}\nPilih sudut pandang, industri terkait, atau isu yang BENAR-BENAR BERBEDA dari topik di atas.\n\n` : ''}
+${previousTopics ? `TOPIK YANG SUDAH ADA (WAJIB BEDA):\n${previousTopics}\n` : ''}
 
-ATURAN KETAT:
-1. JANGAN copy-paste berita. Tulis ulang dengan sudut pandang baru yang relevan untuk pemilik bisnis laundry.
-2. Gunakan gaya bahasa yang profesional, menarik, santai, tapi mudah dipahami.
-3. Sertakan tips praktis yang bisa diterapkan oleh pemilik laundry.
-4. Hubungkan dengan konteks bisnis laundry di Indonesia.
-5. DILARANG KERAS menggunakan karakter markdown: **, *, —, --, ##, ###. Tulis teks biasa tanpa simbol-simbol tersebut.
-6. Untuk penekanan teks, gunakan tag HTML <strong> saja, BUKAN tanda bintang (**).
-7. Untuk dash/strip, gunakan tanda hubung biasa (-) bukan em-dash (—).
-8. JANGAN membuat artikel dengan topik yang sama atau mirip dengan artikel yang sudah ada di database.
+CARA MENULIS (INI YANG PALING PENTING):
+
+1. ANTI-DETEKSI AI — Tulisanmu HARUS terasa ditulis manusia asli:
+   - Variasi panjang kalimat WAJIB acak. Contoh: "Boros. Itu kata yang paling sering saya dengar dari pemilik laundry soal tagihan listrik. Padahal kalau mau dihitung-hitung, sebenarnya ada banyak cara untuk pangkas biaya operasional tanpa harus mengorbankan kualitas cucian yang kita berikan ke pelanggan."
+   - Boleh pakai kalimat pendek untuk efek dramatis. Satu kata pun boleh jadi paragraf.
+   - JANGAN mulai semua paragraf dengan pola yang sama. Variasi: pertanyaan, pernyataan, cerita, data, opini.
+   - WAJIB sisipkan 2-3 cerita/anekdot personal (boleh fiktif tapi realistis). Contoh: "Dulu saya pernah salah pilih deterjen bulk dari supplier di Tanah Abang..."
+   - Pakai bahasa Indonesia santai tapi profesional. Boleh: "nggak", "banget", "nih", "sih", "emang".
+
+2. FRASA TERLARANG (JANGAN PERNAH PAKAI):
+   - "Di era digital ini" / "Di era modern"
+   - "Perlu diketahui bahwa" / "Dengan demikian"
+   - "Tak bisa dipungkiri" / "Menariknya"
+   - "Yang perlu digarisbawahi" / "Dalam konteks ini"
+   - "Penting untuk dicatat" / "Sebagai kesimpulan"
+   - "Mari kita" / "Pada akhirnya"
+   - Jangan buka artikel dengan kalimat definisi atau pernyataan umum.
+
+3. PEMBUKA ARTIKEL — Mulai dengan salah satu:
+   - Cerita personal/anekdot: "Minggu lalu, pelanggan tetap saya komplain soal..."
+   - Pertanyaan provokatif: "Kapan terakhir kali kamu ngecek tagihan listrik laundry-mu? Coba lihat lagi deh."
+   - Fakta mengejutkan: "Rata-rata laundry kiloan di Jabodetabek kehilangan Rp2,3 juta per bulan cuma gara-gara..."
+   - JANGAN buka dengan "Di tengah..." atau "Pada tahun..."
+
+4. KONTEN BERKUALITAS:
+   - Sisipkan data/angka spesifik (boleh estimasi realistis)
+   - Sebutkan nama kota, daerah, merek nyata (Rinso, Downy, Molto, Electrolux, LG)
+   - Berikan minimal 3-5 tips yang BENAR-BENAR bisa dipraktikkan
+   - Tambahkan perbandingan harga atau kalkulasi sederhana kalau relevan
+   - Akhiri dengan CTA natural (bukan hard-sell) mengajak coba Lark Laundry
+
+5. FORMAT HTML:
+   - Gunakan HANYA: <h2>, <h3>, <p>, <ul>, <li>, <ol>, <strong>, <blockquote>
+   - JANGAN pakai <h1>. JANGAN pakai markdown (**, *, ##, ---).
+   - Untuk dash, pakai "-" biasa, BUKAN "—" (em-dash).
+   - Minimal 800 kata.
 
 FORMAT OUTPUT (HARUS PERSIS):
 ---TITLE---
-[Judul artikel yang menarik, max 80 karakter, TANPA tanda **, *, atau —]
+[Judul clickbait-worthy tapi jujur, max 80 karakter, pakai angka kalau bisa. Contoh bagus: "5 Kesalahan Fatal Pemilik Laundry yang Bikin Rugi Jutaan"]
 ---EXCERPT---
-[Ringkasan singkat 1-2 kalimat, max 160 karakter]
+[1-2 kalimat yang bikin orang penasaran, max 160 karakter]
 ---CATEGORY---
-[Pilih SATU kategori paling relevan dari daftar berikut: tips-operasional, panduan-pemula, keuangan, teknologi, inspirasi, industri]
+[Pilih SATU: tips-operasional, panduan-pemula, keuangan, teknologi, inspirasi, industri]
 ---READTIME---
-[estimasi waktu baca, contoh: "5 min"]
+[estimasi, contoh: "6 min"]
 ---CONTENT---
-[Konten artikel dalam format HTML murni. Gunakan tag: <h2>, <h3>, <p>, <ul>, <li>, <strong>. JANGAN gunakan <h1>. JANGAN gunakan markdown (**, *, ##). Panjang minimal 800 kata.]`;
+[Artikel HTML lengkap, minimal 800 kata, WAJIB terasa ditulis manusia]`;
 
   const raw = await callQwen(prompt);
 
