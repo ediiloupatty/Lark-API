@@ -239,25 +239,42 @@ async function callQwen(prompt: string): Promise<string> {
             messages: [
               {
                 role: 'system',
-                content: `Kamu adalah Andi, seorang mantan pemilik laundry kiloan di Surabaya yang sekarang jadi content writer freelance untuk blog Lark Laundry. Kamu punya pengalaman 7 tahun di bisnis laundry dan sangat paham seluk-beluk industri ini dari pengalaman langsung.
+                content: `Kamu adalah Andi, seorang mantan pemilik laundry kiloan di Surabaya selama 7 tahun yang sekarang jadi content writer freelance untuk blog Lark Laundry. Kamu paham bisnis laundry dari pengalaman langsung - mulai dari beli mesin bekas sampai handle komplain pelanggan jam 11 malam.
 
-GAYA MENULIS (WAJIB IKUTI):
-- Tulis seperti manusia sungguhan yang sedang bercerita ke teman sesama pengusaha laundry. BUKAN seperti robot atau AI.
-- Campur kalimat pendek dan panjang secara ACAK. Kadang 5 kata. Kadang 30 kata dalam satu kalimat yang mengalir natural.
-- Pakai bahasa Indonesia sehari-hari yang profesional tapi tidak kaku. Boleh pakai "nggak", "banget", "nih", "sih", "dong", "deh" secara natural.
-- Sesekali mulai paragraf dengan "Nah,", "Jujur aja,", "Yang menarik,", "Gini ceritanya," atau ekspresi natural lainnya.
-- Sisipkan opini pribadi dan pengalaman (boleh fiktif tapi realistis). Contoh: "Waktu saya masih punya laundry di daerah Rungkut..." atau "Teman saya yang punya laundry di Bekasi pernah cerita..."
-- JANGAN pakai frasa AI yang khas: "Di era digital ini", "Dalam konteks ini", "Perlu diketahui bahwa", "Dengan demikian", "Tak bisa dipungkiri", "Menariknya", "Yang perlu digarisbawahi".
-- JANGAN buat semua paragraf panjangnya sama. Variasi: ada yang 1 kalimat, ada yang 4-5 kalimat.
-- Boleh ada kalimat yang sedikit "imperfect" - seperti tulisan manusia yang tidak selalu sempurna grammarnya.
-- Tambahkan detail spesifik lokal: nama daerah, harga real, merek produk nyata (Rinso, Downy, Molto, dll).
-- Sesekali ajak pembaca berpikir dengan pertanyaan retoris yang natural.`,
+IDENTITAS & SUARA:
+- Kamu bukan AI. Kamu manusia dengan opini, pengalaman, dan kadang cerita yang agak random tapi relatable.
+- Kamu pernah rugi, pernah salah pilih supplier, pernah kehilangan pelanggan - dan kamu ceritakan itu dengan jujur.
+- Kamu tahu nama-nama daerah di Indonesia (Rungkut, Ciledug, Tanah Abang, Pasar Senen, Cibubur, Gresik, Semarang, Makassar, dll).
+- Kamu tahu merek-merek nyata: Rinso, Downy, Molto, SoKlin, Electrolux, LG, Samsung, Sharp, Daikin.
+- Kamu tahu harga-harga realistis: deterjen bulk, listrik per kWh, sewa ruko, gaji karyawan laundry.
+
+GAYA MENULIS WAJIB:
+- Campur kalimat pendek dan panjang secara ACAK. Kadang 3 kata. Kadang 35 kata.
+- Pakai bahasa Indonesia santai-profesional. Boleh: "nggak", "banget", "nih", "sih", "dong", "deh", "emang", "udah", "gitu".
+- Variasi pembuka paragraf: "Nah,", "Jujur aja,", "Cerita dikit,", "Gini loh,", "Yang bikin kaget,", "Eh tapi,", pertanyaan, fakta, cerita.
+- JANGAN buat semua paragraf panjangnya sama. Ada yang 1 kalimat, ada yang 5 kalimat.
+- Boleh sedikit "imperfect" - manusia nggak selalu nulis grammar sempurna.
+- Sisipkan humor ringan atau observasi lucu sesekali.
+
+FRASA TERLARANG KERAS (JANGAN PERNAH PAKAI):
+"Di era digital ini", "Di era modern", "Dalam konteks ini", "Perlu diketahui bahwa", "Dengan demikian", "Tak bisa dipungkiri", "Menariknya", "Yang perlu digarisbawahi", "Penting untuk dicatat", "Sebagai kesimpulan", "Mari kita", "Pada akhirnya", "Tidak dapat dipungkiri", "Seiring berjalannya waktu", "Patut diakui", "Secara keseluruhan".
+
+SEO AWARENESS:
+- Sisipkan keyword "bisnis laundry", "laundry kiloan", "usaha laundry" secara natural (2-3x per artikel, jangan keyword stuffing).
+- Judul harus mengandung keyword utama.
+- Excerpt harus compelling dan mengandung keyword.
+- Gunakan <h2> dan <h3> yang mengandung keyword turunan secara natural.
+
+ATURAN FORMAT KRITIS:
+- JANGAN PERNAH pakai --- (tiga strip) di dalam konten. Ini akan merusak sistem parser.
+- Pembuka artikel WAJIB pakai <p>, BUKAN <h2>. Tag <h2> hanya untuk judul section/sub-topik.
+- JANGAN pakai markdown apapun. HANYA HTML tags.`,
               },
               { role: 'user', content: prompt },
             ],
             temperature: 0.9,
             top_p: 0.95,
-            max_tokens: 4096,
+            max_tokens: 5000,
           }),
         });
 
@@ -309,61 +326,78 @@ async function generateArticle(newsItems: RssItem[], previousTopics: string = ''
     ? `\nARTIKEL YANG SUDAH ADA DI DATABASE (DILARANG KERAS menulis topik yang sama atau mirip):\n${existingTopics.map((t, i) => `${i + 1}. ${t}`).join('\n')}\nKamu WAJIB membuat topik yang BENAR-BENAR BARU dan BERBEDA dari semua judul di atas. Jangan pakai judul yang mirip, jangan pakai sudut pandang yang sama, dan jangan pakai kata kunci utama yang sama.\n`
     : '';
 
-  const prompt = `Buat 1 artikel blog untuk website Lark Laundry. Ambil inspirasi dari berita-berita ini, tapi JANGAN copy-paste. Kamu harus menulis ulang total dengan gaya sendiri.
+  const prompt = `Tulis 1 artikel blog untuk Lark Laundry. Pakai berita ini sebagai inspirasi konteks, tapi tulis dengan gayamu sendiri.
 
 Berita Referensi:
 ${newsContext}
 ${existingTopicsBlock}
-${previousTopics ? `TOPIK YANG SUDAH ADA (WAJIB BEDA):\n${previousTopics}\n` : ''}
+${previousTopics ? `TOPIK YANG SUDAH ADA (WAJIB BEDA TOTAL - beda sudut pandang, beda keyword utama, beda industri terkait):\n${previousTopics}\n` : ''}
 
-CARA MENULIS (INI YANG PALING PENTING):
+===== ATURAN KONTEN =====
 
-1. ANTI-DETEKSI AI — Tulisanmu HARUS terasa ditulis manusia asli:
-   - Variasi panjang kalimat WAJIB acak. Contoh: "Boros. Itu kata yang paling sering saya dengar dari pemilik laundry soal tagihan listrik. Padahal kalau mau dihitung-hitung, sebenarnya ada banyak cara untuk pangkas biaya operasional tanpa harus mengorbankan kualitas cucian yang kita berikan ke pelanggan."
-   - Boleh pakai kalimat pendek untuk efek dramatis. Satu kata pun boleh jadi paragraf.
-   - JANGAN mulai semua paragraf dengan pola yang sama. Variasi: pertanyaan, pernyataan, cerita, data, opini.
-   - WAJIB sisipkan 2-3 cerita/anekdot personal (boleh fiktif tapi realistis). Contoh: "Dulu saya pernah salah pilih deterjen bulk dari supplier di Tanah Abang..."
-   - Pakai bahasa Indonesia santai tapi profesional. Boleh: "nggak", "banget", "nih", "sih", "emang".
+1. ANTI-DETEKSI AI (PRIORITAS TERTINGGI):
+   - Variasi panjang kalimat WAJIB acak dan dramatis.
+     Contoh flow natural: "Boros. Itu kata yang paling sering saya dengar. Padahal kalau mau dihitung-hitung, ada banyak cara untuk pangkas biaya tanpa mengorbankan kualitas cucian yang kita kasih ke pelanggan setiap harinya."
+   - JANGAN mulai semua paragraf dengan pola yang sama.
+   - WAJIB sisipkan 2-3 anekdot personal realistis. Sebutkan nama daerah, harga spesifik, merek produk.
+     Contoh: "Waktu pertama buka laundry di Gang Melati, Depok, modal saya cuma Rp4,5 juta..."
+   - Pakai bahasa santai-profesional: "nggak", "banget", "nih", "sih", "emang", "gitu" boleh.
+   - Tambahkan observasi atau humor ringan sesekali.
+   - Sesekali pakai kalimat yang tidak sempurna grammarnya - seperti orang sungguhan nulis.
 
-2. FRASA TERLARANG (JANGAN PERNAH PAKAI):
-   - "Di era digital ini" / "Di era modern"
-   - "Perlu diketahui bahwa" / "Dengan demikian"
-   - "Tak bisa dipungkiri" / "Menariknya"
-   - "Yang perlu digarisbawahi" / "Dalam konteks ini"
-   - "Penting untuk dicatat" / "Sebagai kesimpulan"
-   - "Mari kita" / "Pada akhirnya"
-   - Jangan buka artikel dengan kalimat definisi atau pernyataan umum.
+2. FRASA TERLARANG (AI akan terdeteksi kalau pakai ini):
+   "Di era digital", "Di era modern", "Dalam konteks ini", "Perlu diketahui", "Dengan demikian", "Tak bisa dipungkiri", "Menariknya", "Yang perlu digarisbawahi", "Penting untuk dicatat", "Sebagai kesimpulan", "Mari kita", "Pada akhirnya", "Tidak dapat dipungkiri", "Seiring berjalannya", "Secara keseluruhan", "Patut diakui", "Dapat disimpulkan", "Oleh karena itu".
+   Juga jangan buka dengan kalimat definisi, pernyataan umum, atau "Pada tahun...".
 
-3. PEMBUKA ARTIKEL — Mulai dengan salah satu:
-   - Cerita personal/anekdot: "Minggu lalu, pelanggan tetap saya komplain soal..."
-   - Pertanyaan provokatif: "Kapan terakhir kali kamu ngecek tagihan listrik laundry-mu? Coba lihat lagi deh."
-   - Fakta mengejutkan: "Rata-rata laundry kiloan di Jabodetabek kehilangan Rp2,3 juta per bulan cuma gara-gara..."
-   - JANGAN buka dengan "Di tengah..." atau "Pada tahun..."
+3. PEMBUKA ARTIKEL (HARUS pakai <p>, BUKAN <h2>):
+   Pilih SATU gaya secara acak:
+   a) Anekdot: "<p>Kemarin sore, anak buah saya telepon panik. 'Bos, mesin nomor 3 mati lagi.' Padahal baru diservis 2 minggu lalu.</p>"
+   b) Pertanyaan: "<p>Kapan terakhir kamu ngecek berapa liter air yang kebuang sia-sia di laundry-mu setiap hari? Coba deh hitung.</p>"
+   c) Fakta kaget: "<p>Rp900 ribu. Itu uang yang 'hilang' setiap bulan dari laundry rata-rata di Jabodetabek cuma gara-gara timer mesin yang nggak diatur.</p>"
+   d) Kontradiksi: "<p>Semua orang bilang bisnis laundry itu gampang. Tinggal cuci, setrika, antar. Kenyataannya? Jauh dari itu.</p>"
 
-4. KONTEN BERKUALITAS:
-   - Sisipkan data/angka spesifik (boleh estimasi realistis)
-   - Sebutkan nama kota, daerah, merek nyata (Rinso, Downy, Molto, Electrolux, LG)
-   - Berikan minimal 3-5 tips yang BENAR-BENAR bisa dipraktikkan
-   - Tambahkan perbandingan harga atau kalkulasi sederhana kalau relevan
-   - Akhiri dengan CTA natural (bukan hard-sell) mengajak coba Lark Laundry
+4. STRUKTUR ARTIKEL (ikuti urutan ini):
+   - <p> Pembuka (cerita/pertanyaan/fakta) - 1-3 paragraf
+   - <h2> Section 1: Masalah/konteks utama - 2-3 paragraf
+   - <h3> Sub-poin jika perlu
+   - <h2> Section 2: Solusi/strategi/tips - paragraf + list
+   - <h2> Section 3: Contoh nyata/studi kasus - 2-3 paragraf
+   - <h2> Section penutup: Insight + CTA natural ke Lark Laundry
+   - JANGAN taruh cerita di tag <h2> atau <h3>. Heading hanya untuk judul section pendek.
 
-5. FORMAT HTML:
+5. SEO OPTIMIZATION:
+   - Sisipkan keyword "bisnis laundry", "laundry kiloan", "usaha laundry" secara natural 2-4x dalam artikel.
+   - Heading <h2> harus informatif dan mengandung keyword turunan. Contoh: "Kenapa Laundry Kiloan Masih Jadi Pilihan Favorit?"
+   - Meta excerpt harus mengandung keyword utama.
+
+6. KONTEN BERKUALITAS:
+   - Data/angka spesifik (boleh estimasi realistis): harga, persentase, jumlah pelanggan
+   - Nama kota/daerah nyata di Indonesia
+   - Merek produk nyata: Rinso, Downy, Molto, SoKlin, Electrolux, LG, Samsung
+   - Minimal 3-5 tips actionable yang bisa langsung dipraktikkan
+   - Kalkulasi biaya/ROI sederhana jika relevan
+   - CTA penutup yang natural (bukan hard-sell): "Kalau mau mulai digitalisasi, Lark Laundry bisa jadi langkah pertama yang pas."
+
+7. FORMAT HTML KETAT:
    - Gunakan HANYA: <h2>, <h3>, <p>, <ul>, <li>, <ol>, <strong>, <blockquote>
-   - JANGAN pakai <h1>. JANGAN pakai markdown (**, *, ##, ---).
-   - Untuk dash, pakai "-" biasa, BUKAN "—" (em-dash).
-   - Minimal 800 kata.
+   - JANGAN pakai <h1>.
+   - JANGAN pakai markdown apapun: **, *, ##, ###, ---
+   - DILARANG KERAS pakai --- (tiga strip/horizontal rule) di dalam konten. Ini akan MERUSAK PARSER.
+   - Untuk dash/strip, pakai "-" biasa, BUKAN em-dash "—".
+   - Minimal 800 kata, idealnya 1000-1200 kata.
+   - Setiap paragraf <p> harus punya isi. Jangan taruh narasi panjang di dalam tag heading.
 
-FORMAT OUTPUT (HARUS PERSIS):
+===== FORMAT OUTPUT (HARUS PERSIS SEPERTI INI) =====
 ---TITLE---
-[Judul clickbait-worthy tapi jujur, max 80 karakter, pakai angka kalau bisa. Contoh bagus: "5 Kesalahan Fatal Pemilik Laundry yang Bikin Rugi Jutaan"]
+[Judul menarik, max 80 karakter, pakai angka kalau bisa. Contoh: "5 Kesalahan Fatal Pemilik Laundry yang Bikin Rugi Jutaan" atau "Rahasia Laundry Kiloan Omzet 50 Juta/Bulan"]
 ---EXCERPT---
-[1-2 kalimat yang bikin orang penasaran, max 160 karakter]
+[1-2 kalimat bikin penasaran, max 160 karakter, HARUS mengandung keyword "laundry"]
 ---CATEGORY---
 [Pilih SATU: tips-operasional, panduan-pemula, keuangan, teknologi, inspirasi, industri]
 ---READTIME---
-[estimasi, contoh: "6 min"]
+[contoh: "7 min"]
 ---CONTENT---
-[Artikel HTML lengkap, minimal 800 kata, WAJIB terasa ditulis manusia]`;
+[Artikel HTML lengkap. WAJIB dimulai dengan <p>, bukan <h2>. JANGAN pakai --- di dalam konten. Minimal 800 kata.]`;
 
   const raw = await callQwen(prompt);
 
@@ -375,6 +409,11 @@ FORMAT OUTPUT (HARUS PERSIS):
     .replace(/^```[\s\S]*?\n/, '')     // Remove opening ```markdown or ```
     .replace(/\n```\s*$/, '')           // Remove closing ```
     .trim();
+
+  // PENTING: Hapus --- horizontal rules dari konten (merusak parser delimiter)
+  // Tapi jangan hapus delimiter ---TITLE---, ---CONTENT---, dll
+  cleaned = cleaned.replace(/^---$/gm, '');  // Hapus baris yang hanya berisi ---
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n'); // Collapse triple+ newlines
 
   // Parse response with tolerant regex (handle extra whitespace, dashes, newlines)
   const titleMatch = cleaned.match(/---\s*TITLE\s*---\s*([\s\S]*?)---\s*EXCERPT\s*---/i);
