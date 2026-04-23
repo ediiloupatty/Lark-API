@@ -224,23 +224,26 @@ Dari berita-berita berikut, buatkan 1 artikel blog UNIK dalam Bahasa Indonesia y
 Berita Sumber:
 ${newsContext}
 
-${previousTopics ? `JANGAN MENGULANG TOPIK INI (Sudah dibahas sebelumnya hari ini):\n${previousTopics}\n\n` : ''}
+${previousTopics ? `TOPIK YANG SUDAH DIBAHAS (WAJIB PILIH TOPIK YANG BERBEDA TOTAL, BUKAN VARIASI DARI TOPIK INI):\n${previousTopics}\nPilih sudut pandang, industri terkait, atau isu yang BENAR-BENAR BERBEDA dari topik di atas.\n\n` : ''}
 
-ATURAN:
+ATURAN KETAT:
 1. JANGAN copy-paste berita. Tulis ulang dengan sudut pandang baru yang relevan untuk pemilik bisnis laundry.
 2. Gunakan gaya bahasa yang profesional, menarik, santai, tapi mudah dipahami.
 3. Sertakan tips praktis yang bisa diterapkan oleh pemilik laundry.
 4. Hubungkan dengan konteks bisnis laundry di Indonesia.
+5. DILARANG KERAS menggunakan karakter markdown: **, *, —, --, ##, ###. Tulis teks biasa tanpa simbol-simbol tersebut.
+6. Untuk penekanan teks, gunakan tag HTML <strong> saja, BUKAN tanda bintang (**).
+7. Untuk dash/strip, gunakan tanda hubung biasa (-) bukan em-dash (—).
 
 FORMAT OUTPUT (HARUS PERSIS):
 ---TITLE---
-[Judul artikel yang menarik, max 80 karakter]
+[Judul artikel yang menarik, max 80 karakter, TANPA tanda **, *, atau —]
 ---EXCERPT---
 [Ringkasan singkat 1-2 kalimat, max 160 karakter]
 ---READTIME---
 [estimasi waktu baca, contoh: "5 min"]
 ---CONTENT---
-[Konten artikel dalam format HTML. Gunakan tag: <h2>, <h3>, <p>, <ul>, <li>, <strong>. JANGAN gunakan <h1>. Panjang minimal 800 kata.]`;
+[Konten artikel dalam format HTML murni. Gunakan tag: <h2>, <h3>, <p>, <ul>, <li>, <strong>. JANGAN gunakan <h1>. JANGAN gunakan markdown (**, *, ##). Panjang minimal 800 kata.]`;
 
   const raw = await callQwen(prompt);
 
@@ -318,6 +321,23 @@ FORMAT OUTPUT (HARUS PERSIS):
 
   // Clean up markdown artifacts
   content = content.replace(/```html\s*/g, '').replace(/```\s*$/g, '').trim();
+
+  // Sanitize: hapus karakter markdown (**, *, —) dari title, excerpt, dan content
+  const sanitizeMarkdown = (text: string): string => {
+    return text
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>') // **bold** → <strong>
+      .replace(/\*([^*]+)\*/g, '$1')    // *italic* → plain text
+      .replace(/—/g, '-')               // em-dash → hyphen
+      .replace(/–/g, '-')               // en-dash → hyphen
+      .replace(/^#{1,6}\s+/gm, '')      // ## heading → plain text
+      .replace(/\*{2,}/g, '')           // leftover ** → remove
+      .replace(/\*(?![a-zA-Z])/g, '')   // stray * at end → remove
+      .trim();
+  };
+
+  title = sanitizeMarkdown(title);
+  excerpt = sanitizeMarkdown(excerpt);
+  content = sanitizeMarkdown(content);
 
   return {
     title,
