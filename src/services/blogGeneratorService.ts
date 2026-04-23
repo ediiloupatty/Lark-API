@@ -244,18 +244,79 @@ FORMAT OUTPUT (HARUS PERSIS):
 
   const raw = await callQwen(prompt);
 
-  // Parse response
-  const titleMatch = raw.match(/---TITLE---\s*([\s\S]*?)---EXCERPT---/);
-  const excerptMatch = raw.match(/---EXCERPT---\s*([\s\S]*?)---READTIME---/);
-  const readTimeMatch = raw.match(/---READTIME---\s*([\s\S]*?)---CONTENT---/);
-  const contentMatch = raw.match(/---CONTENT---\s*([\s\S]*)/);
+  // Log raw response for debugging
+  console.log(`[BlogGen] 📄 Raw response (first 300 chars): ${raw.slice(0, 300)}`);
 
-  const title = titleMatch?.[1]?.trim() || 'Artikel Bisnis Laundry';
-  const excerpt = excerptMatch?.[1]?.trim() || 'Tips dan insight untuk bisnis laundry Anda.';
+  // Clean up any markdown wrapper Qwen might add
+  let cleaned = raw
+    .replace(/^```[\s\S]*?\n/, '')     // Remove opening ```markdown or ```
+    .replace(/\n```\s*$/, '')           // Remove closing ```
+    .trim();
+
+  // Parse response with tolerant regex (handle extra whitespace, dashes, newlines)
+  const titleMatch = cleaned.match(/---\s*TITLE\s*---\s*([\s\S]*?)---\s*EXCERPT\s*---/i);
+  const excerptMatch = cleaned.match(/---\s*EXCERPT\s*---\s*([\s\S]*?)---\s*READTIME\s*---/i);
+  const readTimeMatch = cleaned.match(/---\s*READTIME\s*---\s*([\s\S]*?)---\s*CONTENT\s*---/i);
+  const contentMatch = cleaned.match(/---\s*CONTENT\s*---\s*([\s\S]*)/i);
+
+  let title = titleMatch?.[1]?.trim().replace(/^["']+|["']+$/g, '') || '';
+  let excerpt = excerptMatch?.[1]?.trim().replace(/^["']+|["']+$/g, '') || '';
   const readTime = readTimeMatch?.[1]?.trim() || '5 min';
-  let content = contentMatch?.[1]?.trim() || '<p>Konten tidak tersedia.</p>';
+  let content = contentMatch?.[1]?.trim() || '';
 
-  // Clean up markdown artifacts jika ada
+  // Fallback: if delimiter parsing failed, try line-based extraction
+  if (!title || !content) {
+    console.warn('[BlogGen] ⚠️ Delimiter parsing failed, trying line-based extraction...');
+    const lines = cleaned.split('\n').map(l => l.trim()).filter(Boolean);
+    
+    // First non-empty line that's not a delimiter is likely the title
+    if (!title) {
+      const titleLine = lines.find(l => !l.startsWith('---') && !l.startsWith('#') && l.length > 10 && l.length < 100);
+      title = titleLine?.replace(/^#+\s*/, '') || '';
+    }
+    
+    // Content: everything after ---CONTENT--- or after the first <h2>/<p> tag
+    if (!content) {
+      const contentStart = cleaned.indexOf('<h2>') !== -1 ? cleaned.indexOf('<h2>') : cleaned.indexOf('<p>');
+      if (contentStart !== -1) {
+        content = cleaned.slice(contentStart);
+      }
+    }
+  }
+
+  // Validate title — reject generic/too short titles
+  const GENERIC_TITLES = ['artikel bisnis laundry', 'artikel', 'blog', 'judul artikel', 'title'];
+  if (!title || title.length < 15 || GENERIC_TITLES.includes(title.toLowerCase())) {
+    console.warn(`[BlogGen] ⚠️ Title rejected (generic/empty): "${title}"`);
+    // Extract a better title from content h2 tags
+    const h2Match = content.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i);
+    if (h2Match) {
+      title = h2Match[1].replace(/<[^>]+>/g, '').trim();
+      console.log(`[BlogGen] 🔄 Using first h2 as title: "${title}"`);
+    } else {
+      // Use first sentence of content as title
+      const firstP = content.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
+      if (firstP) {
+        const firstSentence = firstP[1].replace(/<[^>]+>/g, '').split(/[.!?]/)[0].trim();
+        title = firstSentence.length > 20 ? firstSentence.slice(0, 80) : 'Strategi Bisnis Laundry ' + new Date().toLocaleDateString('id-ID');
+        console.log(`[BlogGen] 🔄 Using first sentence as title: "${title}"`);
+      }
+    }
+  }
+
+  // Validate excerpt
+  if (!excerpt || excerpt.length < 20) {
+    const firstP = content.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
+    excerpt = firstP ? firstP[1].replace(/<[^>]+>/g, '').slice(0, 160) : 'Tips dan strategi bisnis laundry terkini untuk pemilik usaha.';
+  }
+
+  // Validate content
+  if (!content || content.length < 200) {
+    console.error('[BlogGen] ❌ Content too short, article will be skipped');
+    throw new Error('Generated content is too short or empty');
+  }
+
+  // Clean up markdown artifacts
   content = content.replace(/```html\s*/g, '').replace(/```\s*$/g, '').trim();
 
   return {
@@ -317,16 +378,26 @@ export async function generateDailyBlog(): Promise<{ success: boolean; articles?
       const chunk = relevant.sort(() => Math.random() - 0.5).slice(0, Math.min(5, relevant.length));
       console.log(`[BlogGen] 📋 Dipilih: ${chunk.map(s => s.title).join(' | ')}`);
 
-      // 4. Generate via Gemini/Qwen
-      const article = await generateArticle(chunk, previousTopics);
-      console.log(`[BlogGen] ✍️  Artikel ${i + 1}: "${article.title}"`);
+      try {
+        // 4. Generate via Qwen
+        const article = await generateArticle(chunk, previousTopics);
+        console.log(`[BlogGen] ✍️  Artikel ${i + 1}: "${article.title}"`);
 
-      // 5. Simpan ke DB
-      const articleId = await saveArticle(article);
-      console.log(`[BlogGen] ✅ Tersimpan! ID: ${articleId}`);
+        // 5. Simpan ke DB
+        const articleId = await saveArticle(article);
+        console.log(`[BlogGen] ✅ Tersimpan! ID: ${articleId}`);
 
-      results.push({ id: articleId, title: article.title });
-      previousTopics += `- ${article.title}\n`;
+        results.push({ id: articleId, title: article.title });
+        previousTopics += `- ${article.title}\n`;
+
+        // Jeda 3 menit antar artikel (hindari rate limit + variasi konten)
+        if (i < 1) {
+          console.log('[BlogGen] ⏳ Jeda 3 menit sebelum artikel berikutnya...');
+          await new Promise(r => setTimeout(r, 180_000));
+        }
+      } catch (articleError: any) {
+        console.warn(`[BlogGen] ⚠️ Artikel ${i + 1} gagal: ${articleError.message}, lanjut ke berikutnya...`);
+      }
     }
 
     return { success: true, articles: results };
