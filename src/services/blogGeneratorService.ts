@@ -79,6 +79,51 @@ function detectCategoryFallback(text: string): string {
   return 'bisnis';
 }
 
+// ── Fetch Existing Topics from Database ───────────────────────────────────────
+// Query semua judul artikel yang sudah ada di DB agar AI tidak membuat topik duplikat
+async function fetchExistingTopics(): Promise<string[]> {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      `SELECT title FROM blog_articles ORDER BY created_at DESC LIMIT 100`
+    );
+    return result.rows.map((r: { title: string }) => r.title);
+  } catch (e: any) {
+    console.warn(`[BlogGen] ⚠️ Gagal fetch existing topics: ${e.message}`);
+    return [];
+  } finally {
+    client.release();
+  }
+}
+
+// ── Title Similarity Check ────────────────────────────────────────────────────
+// Cek apakah judul baru terlalu mirip dengan judul yang sudah ada di database.
+// Menggunakan word overlap ratio: jika >= 50% kata sama → dianggap duplikat.
+function isTitleTooSimilar(newTitle: string, existingTitles: string[]): { similar: boolean; matchedTitle?: string } {
+  const normalize = (t: string) => t.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 2);
+  const newWords = new Set(normalize(newTitle));
+  if (newWords.size === 0) return { similar: false };
+
+  for (const existing of existingTitles) {
+    const existingWords = new Set(normalize(existing));
+    if (existingWords.size === 0) continue;
+
+    // Hitung kata yang sama
+    let overlap = 0;
+    for (const word of newWords) {
+      if (existingWords.has(word)) overlap++;
+    }
+
+    // Jika 50% atau lebih kata overlap → terlalu mirip
+    const ratio = overlap / Math.min(newWords.size, existingWords.size);
+    if (ratio >= 0.5) {
+      return { similar: true, matchedTitle: existing };
+    }
+  }
+
+  return { similar: false };
+}
+
 // ── RSS Parser (lightweight, no external dependency) ──────────────────────────
 function parseRssXml(xml: string): RssItem[] {
   const items: RssItem[] = [];
@@ -241,10 +286,15 @@ function createSlug(title: string): string {
     + '-' + Date.now().toString(36);
 }
 
-async function generateArticle(newsItems: RssItem[], previousTopics: string = ''): Promise<GeneratedArticle> {
+async function generateArticle(newsItems: RssItem[], previousTopics: string = '', existingTopics: string[] = []): Promise<GeneratedArticle> {
   const newsContext = newsItems
     .map((n, i) => `Berita ${i + 1}: "${n.title}"\n${n.description}`)
     .join('\n\n');
+
+  // Format daftar topik yang sudah ada di database untuk dimasukkan ke prompt
+  const existingTopicsBlock = existingTopics.length > 0
+    ? `\nARTIKEL YANG SUDAH ADA DI DATABASE (DILARANG KERAS menulis topik yang sama atau mirip):\n${existingTopics.map((t, i) => `${i + 1}. ${t}`).join('\n')}\nKamu WAJIB membuat topik yang BENAR-BENAR BARU dan BERBEDA dari semua judul di atas. Jangan pakai judul yang mirip, jangan pakai sudut pandang yang sama, dan jangan pakai kata kunci utama yang sama.\n`
+    : '';
 
   const prompt = `Kamu adalah penulis blog profesional untuk Lark Laundry, platform manajemen bisnis laundry di Indonesia.
 
@@ -252,8 +302,8 @@ Dari berita-berita berikut, buatkan 1 artikel blog UNIK dalam Bahasa Indonesia y
 
 Berita Sumber:
 ${newsContext}
-
-${previousTopics ? `TOPIK YANG SUDAH DIBAHAS (WAJIB PILIH TOPIK YANG BERBEDA TOTAL, BUKAN VARIASI DARI TOPIK INI):\n${previousTopics}\nPilih sudut pandang, industri terkait, atau isu yang BENAR-BENAR BERBEDA dari topik di atas.\n\n` : ''}
+${existingTopicsBlock}
+${previousTopics ? `TOPIK YANG BARU SAJA DITULIS HARI INI (WAJIB PILIH TOPIK YANG BERBEDA TOTAL, BUKAN VARIASI DARI TOPIK INI):\n${previousTopics}\nPilih sudut pandang, industri terkait, atau isu yang BENAR-BENAR BERBEDA dari topik di atas.\n\n` : ''}
 
 ATURAN KETAT:
 1. JANGAN copy-paste berita. Tulis ulang dengan sudut pandang baru yang relevan untuk pemilik bisnis laundry.
@@ -263,6 +313,7 @@ ATURAN KETAT:
 5. DILARANG KERAS menggunakan karakter markdown: **, *, —, --, ##, ###. Tulis teks biasa tanpa simbol-simbol tersebut.
 6. Untuk penekanan teks, gunakan tag HTML <strong> saja, BUKAN tanda bintang (**).
 7. Untuk dash/strip, gunakan tanda hubung biasa (-) bukan em-dash (—).
+8. JANGAN membuat artikel dengan topik yang sama atau mirip dengan artikel yang sudah ada di database.
 
 FORMAT OUTPUT (HARUS PERSIS):
 ---TITLE---
@@ -416,6 +467,13 @@ export async function generateDailyBlog(): Promise<{ success: boolean; articles?
   console.log('[BlogGen] 🚀 Mulai generate blog harian...');
   
   try {
+    // 0. Fetch existing topics dari database untuk hindari duplikat
+    const existingTopics = await fetchExistingTopics();
+    console.log(`[BlogGen] 📚 Artikel existing di DB: ${existingTopics.length} judul`);
+    if (existingTopics.length > 0) {
+      console.log(`[BlogGen] 📋 Contoh judul terakhir: ${existingTopics.slice(0, 5).join(' | ')}`);
+    }
+
     // 1. Fetch RSS
     const allNews = await fetchRssFeeds();
     console.log(`[BlogGen] 📰 Total berita: ${allNews.length}`);
@@ -436,6 +494,8 @@ export async function generateDailyBlog(): Promise<{ success: boolean; articles?
 
     const results = [];
     let previousTopics = "";
+    // Track semua topik (DB + baru dibuat hari ini) untuk pengecekan duplikat
+    const allKnownTopics = [...existingTopics];
 
     // Generate 2 artikel
     for (let i = 0; i < 2; i++) {
@@ -444,17 +504,44 @@ export async function generateDailyBlog(): Promise<{ success: boolean; articles?
       const chunk = relevant.sort(() => Math.random() - 0.5).slice(0, Math.min(5, relevant.length));
       console.log(`[BlogGen] 📋 Dipilih: ${chunk.map(s => s.title).join(' | ')}`);
 
+      // Retry loop: jika judul terlalu mirip dengan existing, coba generate ulang (max 3x)
+      let article: GeneratedArticle | null = null;
+      for (let retry = 0; retry < 3; retry++) {
+        try {
+          // 4. Generate via Qwen (dengan daftar topik existing)
+          const candidate = await generateArticle(chunk, previousTopics, allKnownTopics);
+
+          // 5. Cek similaritas judul dengan semua topik yang sudah ada
+          const similarityCheck = isTitleTooSimilar(candidate.title, allKnownTopics);
+          if (similarityCheck.similar) {
+            console.warn(`[BlogGen] 🔄 Judul "${candidate.title}" terlalu mirip dengan "${similarityCheck.matchedTitle}". Retry ${retry + 1}/3...`);
+            // Tambahkan info retry ke previousTopics agar AI tahu harus berbeda
+            previousTopics += `- DITOLAK (mirip existing): ${candidate.title}\n`;
+            continue;
+          }
+
+          article = candidate;
+          break;
+        } catch (genError: any) {
+          console.warn(`[BlogGen] ⚠️ Generate retry ${retry + 1} gagal: ${genError.message}`);
+        }
+      }
+
+      if (!article) {
+        console.warn(`[BlogGen] ⚠️ Artikel ${i + 1} gagal setelah 3 retry (semua mirip existing), skip...`);
+        continue;
+      }
+
       try {
-        // 4. Generate via Qwen
-        const article = await generateArticle(chunk, previousTopics);
         console.log(`[BlogGen] ✍️  Artikel ${i + 1}: "${article.title}"`);
 
-        // 5. Simpan ke DB
+        // 6. Simpan ke DB
         const articleId = await saveArticle(article);
         console.log(`[BlogGen] ✅ Tersimpan! ID: ${articleId}`);
 
         results.push({ id: articleId, title: article.title });
         previousTopics += `- ${article.title}\n`;
+        allKnownTopics.push(article.title);
 
         // Jeda 3 menit antar artikel (hindari rate limit + variasi konten)
         if (i < 1) {
@@ -462,7 +549,7 @@ export async function generateDailyBlog(): Promise<{ success: boolean; articles?
           await new Promise(r => setTimeout(r, 180_000));
         }
       } catch (articleError: any) {
-        console.warn(`[BlogGen] ⚠️ Artikel ${i + 1} gagal: ${articleError.message}, lanjut ke berikutnya...`);
+        console.warn(`[BlogGen] ⚠️ Artikel ${i + 1} gagal simpan: ${articleError.message}, lanjut ke berikutnya...`);
       }
     }
 
