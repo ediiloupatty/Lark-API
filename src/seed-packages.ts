@@ -6,9 +6,12 @@ import dotenv from 'dotenv';
 
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
+const dbUrl = process.env.DATABASE_URL || '';
+const needsSsl = dbUrl.includes('sslmode=require') || dbUrl.includes('neon.tech') || dbUrl.includes('supabase');
+
 const pool = new Pool({ 
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false } 
+  connectionString: dbUrl,
+  ...(needsSsl ? { ssl: { rejectUnauthorized: false } } : {}),
 });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
@@ -24,7 +27,7 @@ async function seedPackages() {
       xendit_link: 'https://edi-loupatty.myr.id/m/larklaundry-1-bulan',
       features: [
         'Manajemen Pesanan Laundry',
-        'Multi-outlet & Multi-kasir',
+        'Multi-outlet & Multi-karyawan',
         'Laporan Keuangan Harian & Bulanan',
         'Konfirmasi & Riwayat Pembayaran',
         'Manajemen Pelanggan & Staf',
@@ -32,6 +35,7 @@ async function seedPackages() {
         'Notifikasi WhatsApp Otomatis',
         'Export Laporan PDF',
         'Dashboard Analytics',
+        'Prioritas Support',
       ],
       is_active: true,
     },
@@ -44,7 +48,7 @@ async function seedPackages() {
       xendit_link: 'https://edi-loupatty.myr.id/m/larklaundry-3-bulan',
       features: [
         'Manajemen Pesanan Laundry',
-        'Multi-outlet & Multi-kasir',
+        'Multi-outlet & Multi-karyawan',
         'Laporan Keuangan Harian & Bulanan',
         'Konfirmasi & Riwayat Pembayaran',
         'Manajemen Pelanggan & Staf',
@@ -52,6 +56,7 @@ async function seedPackages() {
         'Notifikasi WhatsApp Otomatis',
         'Export Laporan PDF',
         'Dashboard Analytics',
+        'Prioritas Support',
       ],
       is_active: true,
     },
@@ -64,7 +69,7 @@ async function seedPackages() {
       xendit_link: 'https://edi-loupatty.myr.id/m/larklaundry-12-bulan',
       features: [
         'Manajemen Pesanan Laundry',
-        'Multi-outlet & Multi-kasir',
+        'Multi-outlet & Multi-karyawan',
         'Laporan Keuangan Harian & Bulanan',
         'Konfirmasi & Riwayat Pembayaran',
         'Manajemen Pelanggan & Staf',
@@ -72,7 +77,7 @@ async function seedPackages() {
         'Notifikasi WhatsApp Otomatis',
         'Export Laporan PDF',
         'Dashboard Analytics',
-        'Prioritas Support',                     // Bonus eksklusif paket tahunan
+        'Prioritas Support',
       ],
       is_active: true,
     },
