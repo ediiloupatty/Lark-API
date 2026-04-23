@@ -318,7 +318,7 @@ function createSlug(title: string): string {
 
 async function generateArticle(newsItems: RssItem[], previousTopics: string = '', existingTopics: string[] = []): Promise<GeneratedArticle> {
   const newsContext = newsItems
-    .map((n, i) => `Berita ${i + 1}: "${n.title}"\n${n.description}`)
+    .map((n, i) => `Berita ${i + 1}: "${n.title}"\nSumber: ${n.link}\n${n.description}`)
     .join('\n\n');
 
   // Format daftar topik yang sudah ada di database untuk dimasukkan ke prompt
@@ -377,6 +377,10 @@ ${previousTopics ? `TOPIK YANG SUDAH ADA (WAJIB BEDA TOTAL - beda sudut pandang,
    - Minimal 3-5 tips actionable yang bisa langsung dipraktikkan
    - Kalkulasi biaya/ROI sederhana jika relevan
    - CTA penutup yang natural (bukan hard-sell): "Kalau mau mulai digitalisasi, Lark Laundry bisa jadi langkah pertama yang pas."
+   - SITASI SUMBER: Saat menggunakan data atau insight dari berita referensi, sebutkan sumbernya secara natural dalam kalimat.
+     Contoh BAGUS: "Menurut laporan CNBC Indonesia, ekspor otomotif RI melonjak bulan ini - dan ini punya efek domino ke daya beli konsumen laundry."
+     Contoh BAGUS: "Data dari Antara News menunjukkan bahwa UMKM di sektor jasa tumbuh 12% tahun ini."
+     JANGAN pakai format footnote [1][2]. Sebutkan nama media langsung di kalimat secara natural.
 
 7. FORMAT HTML KETAT:
    - Gunakan HANYA: <h2>, <h3>, <p>, <ul>, <li>, <ol>, <strong>, <blockquote>
@@ -511,6 +515,36 @@ ${previousTopics ? `TOPIK YANG SUDAH ADA (WAJIB BEDA TOTAL - beda sudut pandang,
   title = sanitizeMarkdown(title);
   excerpt = sanitizeMarkdown(excerpt);
   content = sanitizeMarkdown(content);
+
+  // ── Tambahkan Section Sumber Referensi di akhir konten ──
+  // Buat daftar link sumber berita yang dipakai sebagai referensi
+  const uniqueLinks = [...new Set(newsItems.map(n => n.link).filter(Boolean))];
+  if (uniqueLinks.length > 0) {
+    const sourceDomain = (url: string): string => {
+      try {
+        const hostname = new URL(url).hostname.replace('www.', '');
+        // Map hostname ke nama media yang lebih readable
+        const mediaNames: Record<string, string> = {
+          'antaranews.com': 'Antara News',
+          'cnnindonesia.com': 'CNN Indonesia',
+          'cnbcindonesia.com': 'CNBC Indonesia',
+          'suara.com': 'Suara.com',
+          'liputan6.com': 'Liputan6',
+          'okezone.com': 'Okezone',
+          'sindikasi.okezone.com': 'Okezone',
+        };
+        return mediaNames[hostname] || hostname;
+      } catch {
+        return 'Sumber';
+      }
+    };
+
+    const sourceLinks = uniqueLinks
+      .map(url => `<li><a href="${url}" target="_blank" rel="noopener noreferrer">${sourceDomain(url)}</a></li>`)
+      .join('\n');
+
+    content += `\n\n<h3>Sumber Referensi</h3>\n<ul>\n${sourceLinks}\n</ul>`;
+  }
 
   return {
     title,
