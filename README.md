@@ -34,6 +34,7 @@ backend-node/
 │   │   └── db.ts                   # Prisma client configuration
 │   ├── controllers/
 │   │   ├── authController.ts       # Login, register, Google OAuth, reset password
+│   │   ├── blogController.ts       # Blog artikel (list, detail, public API)
 │   │   ├── orderController.ts      # CRUD pesanan, status tracking
 │   │   ├── customerController.ts   # Manajemen pelanggan
 │   │   ├── serviceController.ts    # Layanan laundry (cuci, setrika, dll.)
@@ -50,21 +51,25 @@ backend-node/
 │   │   └── syncPullController.ts   # Server → Mobile data sync
 │   ├── routes/
 │   │   ├── authRoutes.ts           # Auth-related routes
+│   │   ├── blogRoutes.ts           # Blog public routes
 │   │   └── syncRoutes.ts           # Offline sync routes
 │   ├── middlewares/
 │   │   ├── authMiddleware.ts       # JWT token validation
 │   │   ├── rateLimiter.ts          # IP-based rate limiting
 │   │   └── maintenanceMiddleware.ts # Maintenance mode toggle
 │   ├── services/
+│   │   ├── blogGeneratorService.ts # Auto blog generator (Qwen AI + RSS)
 │   │   ├── firebaseService.ts      # FCM push notification
 │   │   ├── whatsappService.ts      # Fonnte WhatsApp API
 │   │   └── SyncService.ts          # Offline-first sync logic
+│   ├── scripts/
+│   │   └── generateBlog.ts         # Standalone cron script untuk auto blog
 │   └── utils/
 │       ├── authUtils.ts            # JWT sign/verify helpers
 │       ├── auditHelper.ts          # Audit log writer
 │       └── mailer.ts               # Nodemailer email sender
 ├── prisma/
-│   ├── schema.prisma               # Database schema (21 tabel)
+│   ├── schema.prisma               # Database schema (22 tabel)
 │   └── migrations/                 # Migration history
 ├── docker-compose.yml              # PostgreSQL container
 ├── Dockerfile                      # Backend container image
@@ -148,6 +153,9 @@ FONNTE_TOKEN=your-fonnte-token
 
 # Firebase
 FIREBASE_SERVICE_ACCOUNT=firebase-service-account.json
+
+# AI Blog Generator (Qwen via DashScope)
+DASHSCOPE_API_KEY=sk-your-dashscope-api-key
 ```
 
 ---
@@ -188,6 +196,12 @@ FIREBASE_SERVICE_ACCOUNT=firebase-service-account.json
 | GET/POST | `/api/v1/staff` | Manajemen staf |
 | GET | `/api/v1/finance/*` | Laporan keuangan |
 
+### Blog (Public)
+| Method | Endpoint | Deskripsi |
+|:---|:---|:---|
+| GET | `/api/v1/blog` | List artikel blog (pagination) |
+| GET | `/api/v1/blog/:slug` | Detail artikel by slug |
+
 ---
 
 ## 🗄️ Database Schema
@@ -217,6 +231,7 @@ FIREBASE_SERVICE_ACCOUNT=firebase-service-account.json
 | `reports` | Laporan keuangan |
 | `reviews` | Review pelanggan |
 | `webhook_logs` | Log webhook payment gateway |
+| `blog_articles` | Artikel blog auto-generated |
 
 ---
 
@@ -252,6 +267,81 @@ FIREBASE_SERVICE_ACCOUNT=firebase-service-account.json
 npm run dev     # Development (tsx watch, auto-reload)
 npm run start   # Production (tsx)
 npm run seed    # Seed subscription packages
+npm run build   # Compile TypeScript ke dist/
+```
+
+---
+
+## 📝 Auto Blog Generator
+
+Sistem otomatis yang menghasilkan artikel blog berkualitas setiap hari menggunakan AI.
+
+### Arsitektur
+
+```
+CRON (06:00 WIB)
+  ↓
+generateBlog.ts (standalone script)
+  ↓
+blogGeneratorService.ts
+  ├── 1. Fetch RSS feeds (7 sumber berita Indonesia)
+  ├── 2. Filter berita relevan (bisnis, UMKM, teknologi, laundry)
+  ├── 3. Generate artikel via Qwen AI (DashScope API)
+  ├── 4. Sanitize output (strip markdown chars)
+  └── 5. Simpan ke database (blog_articles)
+```
+
+### Konfigurasi
+
+| Item | Detail |
+|:---|:---|
+| **AI Model** | Qwen (via Alibaba DashScope API) |
+| **Jadwal** | Setiap hari jam 06:00 WIB |
+| **Jumlah** | 2 artikel per hari |
+| **Jeda antar artikel** | 3 menit (hindari rate limit) |
+| **Bahasa** | Bahasa Indonesia |
+| **Panjang minimal** | 800 kata per artikel |
+
+### Sumber RSS
+
+| Sumber | Kategori |
+|:---|:---|
+| Detik Finance | Berita bisnis & ekonomi |
+| Kompas Bisnis | Insight bisnis Indonesia |
+| Bisnis.com | Update korporat & UMKM |
+| Tempo Bisnis | Ekonomi & kebijakan |
+| CNBC Indonesia | Fintech & digital economy |
+| Liputan6 Bisnis | Trending bisnis |
+| Tribun Bisnis | Bisnis populer |
+
+### Fitur Keamanan Konten
+
+- **Validasi judul** - reject judul generik/terlalu pendek (< 15 karakter)
+- **Sanitizer markdown** - otomatis strip `**`, `*`, `--`, `##` dari output AI
+- **Em-dash cleanup** - konversi `--` dan `--` ke tanda hubung biasa (`-`)
+- **Konversi bold** - `**text**` otomatis jadi `<strong>text</strong>`
+- **Deduplikasi topik** - artikel ke-2 wajib topik yang berbeda total dari artikel ke-1
+- **Fallback title** - jika parsing gagal, ambil dari `<h2>` pertama atau kalimat pertama
+- **Error isolation** - jika 1 artikel gagal, artikel berikutnya tetap diproses
+
+### Manual Generate
+
+```bash
+# Jalankan manual (tanpa menunggu cron)
+npx tsx src/scripts/generateBlog.ts
+
+# Cek log cron
+tail -f logs/blog-cron.log
+```
+
+### Cron Setup (VPS)
+
+```bash
+# Edit crontab
+crontab -e
+
+# Tambahkan:
+0 6 * * * cd /var/www/larklaundry/backend-node && /usr/bin/npx tsx src/scripts/generateBlog.ts >> logs/blog-cron.log 2>&1
 ```
 
 ---
