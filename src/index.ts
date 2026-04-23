@@ -247,6 +247,7 @@ async function bootstrap() {
             excerpt     TEXT NOT NULL,
             content     TEXT NOT NULL,
             read_time   VARCHAR(20) DEFAULT '5 min',
+            category    VARCHAR(50) DEFAULT 'bisnis',
             status      VARCHAR(20) DEFAULT 'published',
             source_urls TEXT[] DEFAULT '{}',
             created_at  TIMESTAMPTZ DEFAULT NOW(),

@@ -20,7 +20,7 @@ export async function listBlogArticles(req: Request, res: Response) {
     const client = await pool.connect();
     try {
       const result = await client.query(
-        `SELECT id, slug, title, excerpt, read_time, status, created_at
+        `SELECT id, slug, title, excerpt, read_time, category, status, created_at
          FROM blog_articles
          WHERE status = 'published'
          ORDER BY created_at DESC
@@ -35,6 +35,7 @@ export async function listBlogArticles(req: Request, res: Response) {
           title: row.title,
           excerpt: row.excerpt,
           readTime: row.read_time,
+          category: row.category || null,
           date: row.created_at,
         })),
       });
@@ -64,7 +65,7 @@ export async function getBlogArticle(req: Request, res: Response) {
     const client = await pool.connect();
     try {
       const result = await client.query(
-        `SELECT id, slug, title, excerpt, content, read_time, source_urls, created_at
+        `SELECT id, slug, title, excerpt, content, read_time, category, source_urls, created_at
          FROM blog_articles
          WHERE slug = $1 AND status = 'published'
          LIMIT 1`,
@@ -86,6 +87,7 @@ export async function getBlogArticle(req: Request, res: Response) {
           excerpt: row.excerpt,
           content: row.content,
           readTime: row.read_time,
+          category: row.category || null,
           sourceUrls: row.source_urls,
           date: row.created_at,
         },

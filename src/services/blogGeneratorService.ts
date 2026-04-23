@@ -47,7 +47,36 @@ interface GeneratedArticle {
   excerpt: string;
   content: string;
   readTime: string;
+  category: string;
   sourceUrls: string[];
+}
+
+// Kategori yang valid untuk blog Lark Laundry
+const VALID_CATEGORIES = [
+  'tips-operasional',
+  'panduan-pemula',
+  'keuangan',
+  'teknologi',
+  'inspirasi',
+  'industri',
+];
+
+// Fallback: deteksi kategori dari judul/konten jika Qwen tidak assign
+const CATEGORY_KEYWORDS: Record<string, string[]> = {
+  'tips-operasional': ['efisiensi', 'efisien', 'optimasi', 'produktivitas', 'operasional', 'hemat', 'energi', 'workflow'],
+  'panduan-pemula': ['pemula', 'memulai', 'dari nol', 'panduan', 'langkah', 'cara'],
+  'keuangan': ['biaya', 'hitung', 'untung', 'keuangan', 'modal', 'harga', 'tarif', 'pricing'],
+  'teknologi': ['digital', 'aplikasi', 'teknologi', 'otomasi', 'transformasi', 'software', 'online'],
+  'inspirasi': ['sukses', 'kisah', 'motivasi', 'inspirasi', 'viral', 'tren', 'nostalgia'],
+  'industri': ['industri', 'regulasi', 'pasar', 'persaingan', 'ekonomi', 'kebijakan'],
+};
+
+function detectCategoryFallback(text: string): string {
+  const lower = text.toLowerCase();
+  for (const [cat, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+    if (keywords.some(kw => lower.includes(kw))) return cat;
+  }
+  return 'bisnis';
 }
 
 // ── RSS Parser (lightweight, no external dependency) ──────────────────────────
@@ -240,6 +269,8 @@ FORMAT OUTPUT (HARUS PERSIS):
 [Judul artikel yang menarik, max 80 karakter, TANPA tanda **, *, atau —]
 ---EXCERPT---
 [Ringkasan singkat 1-2 kalimat, max 160 karakter]
+---CATEGORY---
+[Pilih SATU kategori paling relevan dari daftar berikut: tips-operasional, panduan-pemula, keuangan, teknologi, inspirasi, industri]
 ---READTIME---
 [estimasi waktu baca, contoh: "5 min"]
 ---CONTENT---
@@ -258,14 +289,28 @@ FORMAT OUTPUT (HARUS PERSIS):
 
   // Parse response with tolerant regex (handle extra whitespace, dashes, newlines)
   const titleMatch = cleaned.match(/---\s*TITLE\s*---\s*([\s\S]*?)---\s*EXCERPT\s*---/i);
-  const excerptMatch = cleaned.match(/---\s*EXCERPT\s*---\s*([\s\S]*?)---\s*READTIME\s*---/i);
+  const excerptMatch = cleaned.match(/---\s*EXCERPT\s*---\s*([\s\S]*?)---\s*CATEGORY\s*---/i);
+  const categoryMatch = cleaned.match(/---\s*CATEGORY\s*---\s*([\s\S]*?)---\s*READTIME\s*---/i);
   const readTimeMatch = cleaned.match(/---\s*READTIME\s*---\s*([\s\S]*?)---\s*CONTENT\s*---/i);
   const contentMatch = cleaned.match(/---\s*CONTENT\s*---\s*([\s\S]*)/i);
 
+  // Fallback: jika format baru (dengan CATEGORY) gagal, coba format lama (tanpa CATEGORY)
+  const excerptFallback = !excerptMatch ? cleaned.match(/---\s*EXCERPT\s*---\s*([\s\S]*?)---\s*READTIME\s*---/i) : null;
+
   let title = titleMatch?.[1]?.trim().replace(/^["']+|["']+$/g, '') || '';
-  let excerpt = excerptMatch?.[1]?.trim().replace(/^["']+|["']+$/g, '') || '';
+  let excerpt = (excerptMatch || excerptFallback)?.[1]?.trim().replace(/^["']+|["']+$/g, '') || '';
+  const rawCategory = categoryMatch?.[1]?.trim().toLowerCase().replace(/^["']+|["']+$/g, '') || '';
   const readTime = readTimeMatch?.[1]?.trim() || '5 min';
   let content = contentMatch?.[1]?.trim() || '';
+
+  // Validasi category: harus salah satu dari VALID_CATEGORIES, fallback ke deteksi keyword
+  let category = VALID_CATEGORIES.includes(rawCategory) ? rawCategory : '';
+  if (!category) {
+    category = detectCategoryFallback(`${title} ${excerpt} ${content.slice(0, 500)}`);
+    console.log(`[BlogGen] 🏷️ Category auto-detected: "${category}" (Qwen returned: "${rawCategory}")`);
+  } else {
+    console.log(`[BlogGen] 🏷️ Category from Qwen: "${category}"`);
+  }
 
   // Fallback: if delimiter parsing failed, try line-based extraction
   if (!title || !content) {
@@ -345,6 +390,7 @@ FORMAT OUTPUT (HARUS PERSIS):
     excerpt,
     content,
     readTime,
+    category,
     sourceUrls: newsItems.map(n => n.link),
   };
 }
@@ -354,10 +400,10 @@ async function saveArticle(article: GeneratedArticle): Promise<number> {
   const client = await pool.connect();
   try {
     const result = await client.query(
-      `INSERT INTO blog_articles (slug, title, excerpt, content, read_time, status, source_urls)
-       VALUES ($1, $2, $3, $4, $5, 'published', $6)
+      `INSERT INTO blog_articles (slug, title, excerpt, content, read_time, category, status, source_urls)
+       VALUES ($1, $2, $3, $4, $5, $6, 'published', $7)
        RETURNING id`,
-      [article.slug, article.title, article.excerpt, article.content, article.readTime, article.sourceUrls]
+      [article.slug, article.title, article.excerpt, article.content, article.readTime, article.category, article.sourceUrls]
     );
     return result.rows[0].id;
   } finally {
