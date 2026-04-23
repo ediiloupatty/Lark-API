@@ -389,10 +389,12 @@ ${previousTopics ? `TOPIK YANG SUDAH ADA (WAJIB BEDA TOTAL - beda sudut pandang,
    - Minimal 3-5 tips actionable yang bisa langsung dipraktikkan
    - Kalkulasi biaya/ROI sederhana jika relevan
    - CTA penutup yang natural (bukan hard-sell): "Kalau mau mulai digitalisasi, Lark Laundry bisa jadi langkah pertama yang pas."
-   - SITASI SUMBER: Saat menggunakan data atau insight dari berita referensi, sebutkan sumbernya secara natural dalam kalimat.
-     Contoh BAGUS: "Menurut laporan CNBC Indonesia, ekspor otomotif RI melonjak bulan ini - dan ini punya efek domino ke daya beli konsumen laundry."
-     Contoh BAGUS: "Data dari Antara News menunjukkan bahwa UMKM di sektor jasa tumbuh 12% tahun ini."
-     JANGAN pakai format footnote [1][2]. Sebutkan nama media langsung di kalimat secara natural.
+   - SITASI SUMBER DENGAN LINK: Saat menggunakan data atau insight dari berita referensi, WAJIB buat link clickable ke berita aslinya menggunakan tag <a>.
+     Kamu sudah diberi URL sumber untuk setiap berita. Gunakan URL tersebut untuk membuat hyperlink.
+     Contoh BAGUS: "Menurut <a href=\"https://www.cnbcindonesia.com/news/xxx\" target=\"_blank\" rel=\"noopener noreferrer\">laporan CNBC Indonesia</a>, ekspor otomotif RI melonjak bulan ini."
+     Contoh BAGUS: "<a href=\"https://www.antaranews.com/berita/xxx\" target=\"_blank\" rel=\"noopener noreferrer\">Data dari Antara News</a> menunjukkan bahwa UMKM di sektor jasa tumbuh 12% tahun ini."
+     JANGAN pakai format footnote [1][2]. Sisipkan link secara natural di dalam kalimat.
+     Minimal 1-2 sitasi berlink per artikel.
 
 7. FORMAT HTML KETAT:
    - Gunakan HANYA: <h2>, <h3>, <p>, <ul>, <li>, <ol>, <strong>, <blockquote>
