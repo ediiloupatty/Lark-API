@@ -416,13 +416,13 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
     db.customers.findFirst({ where: { id: parseInt(customer_id), tenant_id: tenantId! } })
       .then(async (cust) => {
         if (!cust?.no_hp) return;
-        const tenant = await db.tenants.findUnique({ where: { id: tenantId! }, select: { nama: true } });
+        const tenant = await db.tenants.findUnique({ where: { id: tenantId! }, select: { name: true } });
         const firstItem = Array.isArray(items) && items.length > 0 ? items[0] : null;
         const svc = firstItem?.service_id
           ? await db.services.findFirst({ where: { id: parseInt(firstItem.service_id) }, select: { nama_layanan: true } })
           : null;
         const msg = buildNewOrderMessage({
-          nama_toko: tenant?.nama || 'Laundry Kami',
+          nama_toko: tenant?.name || 'Laundry Kami',
           nama_pelanggan: cust.nama || 'Pelanggan',
           tracking_code: result.trackingCode,
           total_harga: result.totalHarga,

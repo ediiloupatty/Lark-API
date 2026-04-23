@@ -27,8 +27,10 @@ async function main() {
 
   const result = await generateDailyBlog();
 
-  if (result.success) {
-    console.log(`[CRON] ✅ Berhasil! Artikel: "${result.title}" (ID: ${result.articleId})`);
+  if (result.success && result.articles) {
+    result.articles.forEach((art: any, idx: number) => {
+      console.log(`[CRON] ✅ Berhasil! Artikel ${idx + 1}: "${art.title}" (ID: ${art.id})`);
+    });
   } else {
     console.error(`[CRON] ❌ Gagal: ${result.error}`);
   }

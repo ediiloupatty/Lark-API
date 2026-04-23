@@ -17,17 +17,21 @@ import { pool } from '../config/db';
 // ── RSS Feed Sources ──────────────────────────────────────────────────────────
 const RSS_FEEDS = [
   'https://www.antaranews.com/rss/ekonomi-bisnis.xml',
-  'https://feeds.feedburner.com/kompaborneo',
   'https://www.cnnindonesia.com/ekonomi/rss',
+  'https://www.suara.com/rss/bisnis',
+  'https://www.cnbcindonesia.com/news/rss',
+  'https://www.liputan6.com/rss',
+  'https://sindikasi.okezone.com/index.php/rss/0/RSS2.0'
 ];
 
-// Keywords untuk filter berita terkait laundry/bisnis
+// Keywords untuk filter berita terkait laundry/bisnis/viral/lucu
 const KEYWORDS = [
   'laundry', 'binatu', 'cuci', 'pakaian',
   'umkm', 'usaha kecil', 'bisnis', 'wirausaha',
   'franchise', 'waralaba', 'startup', 'digital',
   'pelaku usaha', 'pengusaha', 'ekonomi kreatif',
   'operasional', 'manajemen', 'produktivitas',
+  'viral', 'lucu', 'unik', 'sejarah', 'nostalgia', 'kisah sukses'
 ];
 
 // ── Interfaces ────────────────────────────────────────────────────────────────
@@ -208,20 +212,23 @@ function createSlug(title: string): string {
     + '-' + Date.now().toString(36);
 }
 
-async function generateArticle(newsItems: RssItem[]): Promise<GeneratedArticle> {
+async function generateArticle(newsItems: RssItem[], previousTopics: string = ''): Promise<GeneratedArticle> {
   const newsContext = newsItems
     .map((n, i) => `Berita ${i + 1}: "${n.title}"\n${n.description}`)
     .join('\n\n');
 
   const prompt = `Kamu adalah penulis blog profesional untuk Lark Laundry, platform manajemen bisnis laundry di Indonesia.
 
-Dari berita-berita berikut, buatkan 1 artikel blog UNIK dalam Bahasa Indonesia yang relevan untuk pelaku bisnis laundry/UMKM.
+Dari berita-berita berikut, buatkan 1 artikel blog UNIK dalam Bahasa Indonesia yang relevan untuk pelaku bisnis laundry/UMKM. Jika berita tidak terkait laundry, jadikan itu sebagai studi kasus, cerita lucu, tren viral, inspirasi nostalgia, atau pelajaran bisnis, TAPI selalu hubungkan kembali (bridge) ke operasional bisnis laundry agar relevan dan tidak membingungkan CEO atau pembaca kami.
 
+Berita Sumber:
 ${newsContext}
+
+${previousTopics ? `JANGAN MENGULANG TOPIK INI (Sudah dibahas sebelumnya hari ini):\n${previousTopics}\n\n` : ''}
 
 ATURAN:
 1. JANGAN copy-paste berita. Tulis ulang dengan sudut pandang baru yang relevan untuk pemilik bisnis laundry.
-2. Gunakan gaya bahasa yang profesional tapi mudah dipahami.
+2. Gunakan gaya bahasa yang profesional, menarik, santai, tapi mudah dipahami.
 3. Sertakan tips praktis yang bisa diterapkan oleh pemilik laundry.
 4. Hubungkan dengan konteks bisnis laundry di Indonesia.
 
@@ -278,7 +285,7 @@ async function saveArticle(article: GeneratedArticle): Promise<number> {
 }
 
 // ── Main: Generate Daily Blog ─────────────────────────────────────────────────
-export async function generateDailyBlog(): Promise<{ success: boolean; articleId?: number; title?: string; error?: string }> {
+export async function generateDailyBlog(): Promise<{ success: boolean; articles?: any[]; error?: string }> {
   console.log('[BlogGen] 🚀 Mulai generate blog harian...');
   
   try {
@@ -290,29 +297,39 @@ export async function generateDailyBlog(): Promise<{ success: boolean; articleId
     let relevant = filterRelevantNews(allNews);
     console.log(`[BlogGen] 🎯 Berita relevan: ${relevant.length}`);
 
-    // Kalau tidak ada berita relevan, ambil random 3-5 berita bisnis
+    // Kalau tidak ada berita relevan, ambil random berita bisnis
     if (relevant.length === 0) {
       console.log('[BlogGen] ⚠️ Tidak ada berita relevan, ambil random...');
-      relevant = allNews.slice(0, 5);
+      relevant = allNews.slice(0, 10);
     }
 
     if (relevant.length === 0) {
       return { success: false, error: 'Tidak ada berita yang bisa diambil dari RSS feeds' };
     }
 
-    // 3. Ambil 3-5 berita
-    const selected = relevant.sort(() => Math.random() - 0.5).slice(0, Math.min(5, relevant.length));
-    console.log(`[BlogGen] 📋 Dipilih: ${selected.map(s => s.title).join(' | ')}`);
+    const results = [];
+    let previousTopics = "";
 
-    // 4. Generate via Gemini
-    const article = await generateArticle(selected);
-    console.log(`[BlogGen] ✍️  Artikel: "${article.title}"`);
+    // Generate 2 artikel
+    for (let i = 0; i < 2; i++) {
+      console.log(`\n[BlogGen] 📝 Membuat Artikel ke-${i + 1}/2...`);
+      // 3. Ambil 3-5 berita acak dari relevan
+      const chunk = relevant.sort(() => Math.random() - 0.5).slice(0, Math.min(5, relevant.length));
+      console.log(`[BlogGen] 📋 Dipilih: ${chunk.map(s => s.title).join(' | ')}`);
 
-    // 5. Simpan ke DB
-    const articleId = await saveArticle(article);
-    console.log(`[BlogGen] ✅ Tersimpan! ID: ${articleId}`);
+      // 4. Generate via Gemini/Qwen
+      const article = await generateArticle(chunk, previousTopics);
+      console.log(`[BlogGen] ✍️  Artikel ${i + 1}: "${article.title}"`);
 
-    return { success: true, articleId, title: article.title };
+      // 5. Simpan ke DB
+      const articleId = await saveArticle(article);
+      console.log(`[BlogGen] ✅ Tersimpan! ID: ${articleId}`);
+
+      results.push({ id: articleId, title: article.title });
+      previousTopics += `- ${article.title}\n`;
+    }
+
+    return { success: true, articles: results };
   } catch (e: any) {
     console.error('[BlogGen] ❌ Gagal:', e.message);
     return { success: false, error: e.message };

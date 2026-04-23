@@ -116,8 +116,8 @@ export async function triggerGenerate(req: Request, res: Response) {
   if (result.success) {
     res.json({
       status: 'success',
-      message: `Artikel berhasil di-generate: "${result.title}"`,
-      articleId: result.articleId,
+      message: `Artikel berhasil di-generate: ${result.articles?.length} artikel.`,
+      articles: result.articles,
     });
   } else {
     res.status(500).json({
