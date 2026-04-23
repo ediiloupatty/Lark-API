@@ -16,12 +16,24 @@ import { pool } from '../config/db';
 
 // ── RSS Feed Sources ──────────────────────────────────────────────────────────
 const RSS_FEEDS = [
+  // ── Media Indonesia ──
   'https://www.antaranews.com/rss/ekonomi-bisnis.xml',
   'https://www.cnnindonesia.com/ekonomi/rss',
-  'https://www.suara.com/rss/bisnis',
   'https://www.cnbcindonesia.com/news/rss',
-  'https://www.liputan6.com/rss',
-  'https://sindikasi.okezone.com/index.php/rss/0/RSS2.0'
+  'https://sindikasi.okezone.com/index.php/rss/0/RSS2.0',
+  'https://www.tribunnews.com/rss',
+  'https://www.jpnn.com/index.php?mib=rss',
+  'https://www.viva.co.id/get/all',
+  'https://www.sindonews.com/feed',
+  'https://waspada.co.id/feed/',
+  'https://online24jam.com/feed/',
+  'https://thebalitimes.com/feed/',
+  'https://feeds.indonesianews.net/rss/f9295dc05093c851',
+  // ── Media Internasional ──
+  'https://en.antaranews.com/rss/news.xml',
+  'http://rss.cnn.com/rss/edition.rss',
+  'https://feeds.bbci.co.uk/news/rss.xml',
+  'https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml',
 ];
 
 // Keywords untuk filter berita terkait laundry/bisnis/viral/lucu
@@ -526,12 +538,23 @@ ${previousTopics ? `TOPIK YANG SUDAH ADA (WAJIB BEDA TOTAL - beda sudut pandang,
         // Map hostname ke nama media yang lebih readable
         const mediaNames: Record<string, string> = {
           'antaranews.com': 'Antara News',
+          'en.antaranews.com': 'Antara News (English)',
           'cnnindonesia.com': 'CNN Indonesia',
           'cnbcindonesia.com': 'CNBC Indonesia',
-          'suara.com': 'Suara.com',
-          'liputan6.com': 'Liputan6',
           'okezone.com': 'Okezone',
           'sindikasi.okezone.com': 'Okezone',
+          'tribunnews.com': 'Tribun News',
+          'jpnn.com': 'JPNN',
+          'viva.co.id': 'VIVA',
+          'sindonews.com': 'Sindo News',
+          'waspada.co.id': 'Waspada Online',
+          'online24jam.com': 'Online 24 Jam',
+          'thebalitimes.com': 'The Bali Times',
+          'indonesianews.net': 'Indonesia News',
+          'rss.cnn.com': 'CNN International',
+          'feeds.bbci.co.uk': 'BBC News',
+          'rss.nytimes.com': 'The New York Times',
+          'nytimes.com': 'The New York Times',
         };
         return mediaNames[hostname] || hostname;
       } catch {
