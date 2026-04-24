@@ -4,15 +4,71 @@
  * Service utama untuk auto-generate blog articles:
  * 1. Fetch RSS feeds dari beberapa sumber berita
  * 2. Filter berita terkait laundry/bisnis/UMKM
- * 3. Gabungkan 3-5 berita → kirim ke Gemini AI
- * 4. Gemini rewrite menjadi 1 artikel blog unik
+ * 3. Gabungkan 3-5 berita → kirim ke Qwen AI
+ * 4. Qwen rewrite menjadi 1 artikel blog unik
  * 5. Simpan ke database PostgreSQL
+ * 6. Kirim notifikasi ke Discord
  * 
- * Biaya: Rp 0 (Gemini free tier)
- * Beban VPS: Minimal (~10 detik per generate)
+ * Jadwal: 05:00 + 17:00 WITA (1 artikel per run)
+ * Biaya: ~Rp 658/bulan (Qwen Flash)
  */
 
 import { pool } from '../config/db';
+
+// ── Discord Notification ──────────────────────────────────────────────────────
+async function sendDiscordNotification(options: {
+  success: boolean;
+  title?: string;
+  category?: string;
+  articleId?: number;
+  error?: string;
+  totalArticles?: number;
+}): Promise<void> {
+  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+  if (!webhookUrl) {
+    console.warn('[Discord] ⚠️ DISCORD_WEBHOOK_URL tidak ditemukan, skip notifikasi');
+    return;
+  }
+
+  const now = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Makassar' });
+
+  try {
+    const embed = options.success
+      ? {
+          title: '✅ Blog Berhasil Di-Generate!',
+          color: 0x00d26a, // hijau
+          fields: [
+            { name: '📝 Judul', value: options.title || '-', inline: false },
+            { name: '🏷️ Kategori', value: options.category || '-', inline: true },
+            { name: '🆔 Article ID', value: `${options.articleId || '-'}`, inline: true },
+            { name: '📊 Total Artikel', value: `${options.totalArticles || '-'}`, inline: true },
+          ],
+          footer: { text: `Lark Blog Generator • ${now} WITA` },
+        }
+      : {
+          title: '❌ Blog Generation Gagal!',
+          color: 0xff4757, // merah
+          fields: [
+            { name: '⚠️ Error', value: options.error || 'Unknown error', inline: false },
+          ],
+          footer: { text: `Lark Blog Generator • ${now} WITA` },
+        };
+
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'Lark Blog Bot',
+        avatar_url: 'https://larklaundry.com/logo192.png',
+        embeds: [embed],
+      }),
+    });
+
+    console.log('[Discord] 📨 Notifikasi terkirim!');
+  } catch (err: any) {
+    console.warn(`[Discord] ⚠️ Gagal kirim notifikasi: ${err.message}`);
+  }
+}
 
 // ── RSS Feed Sources ──────────────────────────────────────────────────────────
 const RSS_FEEDS = [
@@ -685,14 +741,25 @@ export async function generateDailyBlog(): Promise<{ success: boolean; articles?
         results.push({ id: articleId, title: article.title });
         previousTopics += `- ${article.title}\n`;
         allKnownTopics.push(article.title);
+
+        // Kirim notifikasi sukses ke Discord
+        await sendDiscordNotification({
+          success: true,
+          title: article.title,
+          category: article.category,
+          articleId,
+          totalArticles: existingTopics.length + results.length,
+        });
       } catch (articleError: any) {
         console.warn(`[BlogGen] ⚠️ Artikel gagal simpan: ${articleError.message}`);
+        await sendDiscordNotification({ success: false, error: articleError.message });
       }
     }
 
     return { success: true, articles: results };
   } catch (e: any) {
     console.error('[BlogGen] ❌ Gagal:', e.message);
+    await sendDiscordNotification({ success: false, error: e.message });
     return { success: false, error: e.message };
   }
 }
