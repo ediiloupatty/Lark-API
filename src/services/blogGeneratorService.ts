@@ -640,9 +640,9 @@ export async function generateDailyBlog(): Promise<{ success: boolean; articles?
     // Track semua topik (DB + baru dibuat hari ini) untuk pengecekan duplikat
     const allKnownTopics = [...existingTopics];
 
-    // Generate 2 artikel
-    for (let i = 0; i < 2; i++) {
-      console.log(`\n[BlogGen] 📝 Membuat Artikel ke-${i + 1}/2...`);
+    // Generate 1 artikel per run (jalan 2x sehari: pagi 05:00 + sore 17:00 WITA)
+    for (let i = 0; i < 1; i++) {
+      console.log(`\n[BlogGen] 📝 Membuat Artikel...`);
       // 3. Ambil 3-5 berita acak dari relevan
       const chunk = relevant.sort(() => Math.random() - 0.5).slice(0, Math.min(5, relevant.length));
       console.log(`[BlogGen] 📋 Dipilih: ${chunk.map(s => s.title).join(' | ')}`);
@@ -671,12 +671,12 @@ export async function generateDailyBlog(): Promise<{ success: boolean; articles?
       }
 
       if (!article) {
-        console.warn(`[BlogGen] ⚠️ Artikel ${i + 1} gagal setelah 3 retry (semua mirip existing), skip...`);
+        console.warn(`[BlogGen] ⚠️ Artikel gagal setelah 3 retry (semua mirip existing), skip...`);
         continue;
       }
 
       try {
-        console.log(`[BlogGen] ✍️  Artikel ${i + 1}: "${article.title}"`);
+        console.log(`[BlogGen] ✍️  Artikel: "${article.title}"`);
 
         // 6. Simpan ke DB
         const articleId = await saveArticle(article);
@@ -685,14 +685,8 @@ export async function generateDailyBlog(): Promise<{ success: boolean; articles?
         results.push({ id: articleId, title: article.title });
         previousTopics += `- ${article.title}\n`;
         allKnownTopics.push(article.title);
-
-        // Jeda 3 menit antar artikel (hindari rate limit + variasi konten)
-        if (i < 1) {
-          console.log('[BlogGen] ⏳ Jeda 3 menit sebelum artikel berikutnya...');
-          await new Promise(r => setTimeout(r, 180_000));
-        }
       } catch (articleError: any) {
-        console.warn(`[BlogGen] ⚠️ Artikel ${i + 1} gagal simpan: ${articleError.message}, lanjut ke berikutnya...`);
+        console.warn(`[BlogGen] ⚠️ Artikel gagal simpan: ${articleError.message}`);
       }
     }
 
