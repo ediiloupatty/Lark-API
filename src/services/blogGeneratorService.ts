@@ -166,11 +166,15 @@ async function fetchExistingTopics(): Promise<string[]> {
 
 // ── Title Similarity Check ────────────────────────────────────────────────────
 // Cek apakah judul baru terlalu mirip dengan judul yang sudah ada di database.
-// Menggunakan word overlap ratio: jika >= 50% kata sama → dianggap duplikat.
+// Menggunakan word overlap ratio + number pattern matching.
 function isTitleTooSimilar(newTitle: string, existingTitles: string[]): { similar: boolean; matchedTitle?: string } {
   const normalize = (t: string) => t.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 2);
   const newWords = new Set(normalize(newTitle));
   if (newWords.size === 0) return { similar: false };
+
+  // Extract leading number pattern (e.g., "70%", "5", "10.3%")
+  const numPattern = (t: string) => t.match(/^[\d,.]+%?/)?.[0] || '';
+  const newNumPattern = numPattern(newTitle.trim());
 
   for (const existing of existingTitles) {
     const existingWords = new Set(normalize(existing));
@@ -182,9 +186,16 @@ function isTitleTooSimilar(newTitle: string, existingTitles: string[]): { simila
       if (existingWords.has(word)) overlap++;
     }
 
-    // Jika 50% atau lebih kata overlap → terlalu mirip
+    // Threshold 40% word overlap → terlalu mirip (turun dari 50% untuk lebih ketat)
     const ratio = overlap / Math.min(newWords.size, existingWords.size);
-    if (ratio >= 0.5) {
+    if (ratio >= 0.4) {
+      return { similar: true, matchedTitle: existing };
+    }
+
+    // Cek jika pola angka pembuka sama DAN ada 3+ kata overlap → sangat mirip
+    // Ini menangkap kasus "70% Laundry X" vs "70% Pemilik Laundry Y"
+    const existingNumPattern = numPattern(existing.trim());
+    if (newNumPattern && existingNumPattern && newNumPattern === existingNumPattern && overlap >= 3) {
       return { similar: true, matchedTitle: existing };
     }
   }
