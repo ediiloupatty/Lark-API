@@ -10,9 +10,20 @@
  */
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 
-// MUST be called before any local imports that depend on ENV vars
-dotenv.config({ path: path.join(__dirname, '../.env') });
+// Resolve .env path — works in both src/ (dev) and dist/ (production)
+function findEnvFile(): string {
+  let dir = __dirname;
+  for (let i = 0; i < 5; i++) {
+    const candidate = path.join(dir, '.env');
+    if (fs.existsSync(candidate)) return candidate;
+    dir = path.dirname(dir);
+  }
+  return path.join(__dirname, '../.env');
+}
+
+dotenv.config({ path: findEnvFile() });
 
 import app from './app';
 import { checkConnection, db, pool } from './config/db';

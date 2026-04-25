@@ -3,9 +3,29 @@ import { Pool, PoolClient } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 
-// Fix import hoisting bug: Load .env before initializing Prisma
-dotenv.config({ path: path.join(__dirname, '../../.env') });
+/**
+ * Resolve .env path yang benar baik di development (src/) maupun production (dist/).
+ *
+ * Masalah sebelumnya:
+ *   - Di dev: __dirname = /project/src/config → ../../.env = /project/.env ✅
+ *   - Di prod: __dirname = /project/dist/src/config → ../../.env = /project/dist/.env ❌
+ *
+ * Solusi: Walk up dari __dirname sampai menemukan directory yang mengandung .env
+ */
+function findEnvFile(): string {
+  let dir = __dirname;
+  for (let i = 0; i < 5; i++) {
+    const candidate = path.join(dir, '.env');
+    if (fs.existsSync(candidate)) return candidate;
+    dir = path.dirname(dir);
+  }
+  // Fallback: pakai path relatif seperti sebelumnya
+  return path.join(__dirname, '../../.env');
+}
+
+dotenv.config({ path: findEnvFile() });
 
 // ── Pool Configuration ───────────────────────────────────────────────────────
 // Pool dikonfigurasi agar tahan terhadap gangguan koneksi sementara.
