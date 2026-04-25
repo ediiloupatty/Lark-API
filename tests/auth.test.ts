@@ -84,8 +84,8 @@ describe('Auth Controller', () => {
     await db.$queryRawUnsafe(`UPDATE users SET is_active = true WHERE id = $1`, ctx.adminUserId);
   });
 
-  // ─── REGISTER TESTS (rate limited: 3 per IP/hour) ─────────────
-  // Urutan: validasi dulu, lalu success terakhir agar count tidak habis
+  // ─── REGISTER TESTS ─────────────────────────────────────────────
+  // Rate limiter di-bypass otomatis saat NODE_ENV=test
 
   // ⚠️ Edge: Password terlalu pendek
   it('POST /auth/register — password < 8 char ditolak', async () => {
@@ -119,7 +119,7 @@ describe('Auth Controller', () => {
     expect(res.body.error).toContain('tidak cocok');
   });
 
-  // ✅ Normal: Register berhasil (3rd call within limit)
+  // ✅ Normal: Register berhasil
   it('POST /auth/register — register admin baru', async () => {
     const uniqueUser = `${TEST_PREFIX}reg_${Date.now()}`;
     const res = await request(app)
@@ -146,6 +146,22 @@ describe('Auth Controller', () => {
       await db.$queryRawUnsafe(`DELETE FROM outlets WHERE tenant_id = $1`, user[0].tenant_id);
       await db.$queryRawUnsafe(`DELETE FROM tenants WHERE id = $1`, user[0].tenant_id);
     }
+  });
+
+  // ❌ Failure: Username duplikat
+  it('POST /auth/register — username duplikat ditolak', async () => {
+    const res = await request(app)
+      .post('/api/v1/auth/register')
+      .set('X-App-Platform', 'LarkMobile')
+      .send({
+        username: ctx.adminUsername,
+        password: 'securepass123',
+        confirm_password: 'securepass123',
+        nama: 'Duplicate',
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('sudah digunakan');
   });
 
   // ─── LOGOUT ───────────────────────────────────────────────────

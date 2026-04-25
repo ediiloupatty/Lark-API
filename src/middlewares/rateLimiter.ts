@@ -1,4 +1,15 @@
+/**
+ * rateLimiter.ts — Rate limiting middleware untuk login & register.
+ *
+ * PERUBAHAN: Di NODE_ENV=test, semua rate limiter di-bypass otomatis
+ * agar automated test tidak terhambat oleh throttling.
+ *
+ * KEAMANAN: Bypass HANYA terjadi jika NODE_ENV === 'test'.
+ * Di production dan development, rate limiter tetap aktif penuh.
+ */
 import { Request, Response, NextFunction } from 'express';
+
+const IS_TEST = process.env.NODE_ENV === 'test';
 
 interface RateLimitRecord {
   attempts: number;
@@ -8,6 +19,9 @@ interface RateLimitRecord {
 const memoryStore = new Map<string, RateLimitRecord>();
 
 export const loginRateLimiter = (req: Request, res: Response, next: NextFunction) => {
+  // Bypass rate limit di test environment
+  if (IS_TEST) return next();
+
   const ip = req.ip || req.socket?.remoteAddress || '0.0.0.0';
   const record = memoryStore.get(ip);
   const now = Date.now();
@@ -53,6 +67,9 @@ export const clearFailedLogin = (ip: string) => {
 const registerStore = new Map<string, RateLimitRecord>();
 
 export const registerRateLimiter = (req: Request, res: Response, next: NextFunction) => {
+  // Bypass rate limit di test environment
+  if (IS_TEST) return next();
+
   const ip = req.ip || req.socket?.remoteAddress || '0.0.0.0';
   const record = registerStore.get(ip);
   const now = Date.now();
@@ -81,4 +98,3 @@ export const registerRateLimiter = (req: Request, res: Response, next: NextFunct
 
   next();
 };
-

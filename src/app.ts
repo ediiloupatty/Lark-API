@@ -37,15 +37,17 @@ app.use(helmet({
 
 app.set('trust proxy', 1);
 
-// Security 2: Rate Limit
-const globalLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000,
-  max: 3000,
-  message: { status: 'error', success: false, message: 'Keamanan: Terlalu banyak permintaan. Sistem menjeda koneksi Anda sesaat.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use('/api', globalLimiter);
+// Security 2: Rate Limit (disabled in test environment)
+if (process.env.NODE_ENV !== 'test') {
+  const globalLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    max: 3000,
+    message: { status: 'error', success: false, message: 'Keamanan: Terlalu banyak permintaan. Sistem menjeda koneksi Anda sesaat.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  app.use('/api', globalLimiter);
+}
 
 // Security 3: Custom Origin + CORS
 const allowedOrigins = [
