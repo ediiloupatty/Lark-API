@@ -186,9 +186,10 @@ function isTitleTooSimilar(newTitle: string, existingTitles: string[]): { simila
       if (existingWords.has(word)) overlap++;
     }
 
-    // Threshold 40% word overlap → terlalu mirip (turun dari 50% untuk lebih ketat)
+    // Threshold 35% word overlap → terlalu mirip
+    // Sengaja longgar agar AI punya ruang untuk variasi topik serupa
     const ratio = overlap / Math.min(newWords.size, existingWords.size);
-    if (ratio >= 0.4) {
+    if (ratio >= 0.35) {
       return { similar: true, matchedTitle: existing };
     }
 
@@ -479,9 +480,26 @@ ${previousTopics ? `TOPIK YANG SUDAH ADA (WAJIB BEDA TOTAL - beda sudut pandang,
    - Minimal 800 kata, idealnya 1000-1200 kata.
    - Setiap paragraf <p> harus punya isi. Jangan taruh narasi panjang di dalam tag heading.
 
+===== FORMAT JUDUL (KRITIS - BACA BAIK-BAIK) =====
+JUDUL WAJIB menggunakan salah satu FORMAT BERBEDA ini secara acak (jangan selalu pakai format yang sama):
+- Format pertanyaan: "Kenapa Tagihan Listrik Laundry-mu Terus Naik Tiap Bulan?"
+- Format studi kasus: "Laundry di Bekasi Ini Balik Modal dalam 4 Bulan - Ini Rahasianya"
+- Format how-to: "Cara Hitung Harga Cuci Per Kilo yang Nggak Bikin Rugi"
+- Format insight: "Yang Jarang Diomongin: Kenapa Pelanggan Laundry Pindah ke Kompetitor"
+- Format data/fakta: "Survey 200 Pemilik Laundry: Ini Sumber Kerugian Terbesar Mereka"
+- Format cerita: "Dari Kos-kosan ke Ruko: Perjalanan 3 Tahun Laundry Kiloan di Malang"
+- Format tips singkat: "Trik Sederhana Kurangi Komplain Pelanggan Laundry Tanpa Tambah Biaya"
+- Format warning: "Jangan Buka Laundry Kiloan Sebelum Hitung Ini Dulu"
+
+POLA YANG DILARANG KERAS untuk judul (karena sudah terlalu banyak dipakai):
+- "X [Kata] yang Bikin [sesuatu]" (contoh: "5 Kebiasaan yang Bikin Rugi", "7 Kesalahan yang Bikin Gagal")
+- "X% [Sesuatu] Nggak Sadar..." (contoh: "70% Pemilik Laundry Nggak Sadar...")
+- "Ini yang Bikin..." di awal judul
+Judul max 80 karakter. TIDAK harus pakai angka.
+
 ===== FORMAT OUTPUT (HARUS PERSIS SEPERTI INI) =====
 ---TITLE---
-[Judul menarik, max 80 karakter, pakai angka kalau bisa. Contoh: "5 Kesalahan Fatal Pemilik Laundry yang Bikin Rugi Jutaan" atau "Rahasia Laundry Kiloan Omzet 50 Juta/Bulan"]
+[Tulis judul sesuai aturan FORMAT JUDUL di atas. Pilih format yang BELUM banyak dipakai.]
 ---EXCERPT---
 [1-2 kalimat bikin penasaran, max 160 karakter, HARUS mengandung keyword "laundry"]
 ---CATEGORY---
@@ -716,7 +734,7 @@ export async function generateDailyBlog(): Promise<{ success: boolean; articles?
 
       // Retry loop: jika judul terlalu mirip dengan existing, coba generate ulang (max 3x)
       let article: GeneratedArticle | null = null;
-      for (let retry = 0; retry < 3; retry++) {
+      for (let retry = 0; retry < 5; retry++) {
         try {
           // 4. Generate via Qwen (dengan daftar topik existing)
           const candidate = await generateArticle(chunk, previousTopics, allKnownTopics);
@@ -724,7 +742,7 @@ export async function generateDailyBlog(): Promise<{ success: boolean; articles?
           // 5. Cek similaritas judul dengan semua topik yang sudah ada
           const similarityCheck = isTitleTooSimilar(candidate.title, allKnownTopics);
           if (similarityCheck.similar) {
-            console.warn(`[BlogGen] 🔄 Judul "${candidate.title}" terlalu mirip dengan "${similarityCheck.matchedTitle}". Retry ${retry + 1}/3...`);
+            console.warn(`[BlogGen] 🔄 Judul "${candidate.title}" terlalu mirip dengan "${similarityCheck.matchedTitle}". Retry ${retry + 1}/5...`);
             // Tambahkan info retry ke previousTopics agar AI tahu harus berbeda
             previousTopics += `- DITOLAK (mirip existing): ${candidate.title}\n`;
             continue;
@@ -738,7 +756,7 @@ export async function generateDailyBlog(): Promise<{ success: boolean; articles?
       }
 
       if (!article) {
-        console.warn(`[BlogGen] ⚠️ Artikel gagal setelah 3 retry (semua mirip existing), skip...`);
+        console.warn(`[BlogGen] ⚠️ Artikel gagal setelah 5 retry (semua mirip existing), skip...`);
         continue;
       }
 
