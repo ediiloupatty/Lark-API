@@ -4,15 +4,27 @@ import fs from 'fs';
 import { db } from '../config/db';
 
 // ── Inisialisasi Firebase Admin SDK ──────────────────────────────
-const serviceAccountPath = path.join(__dirname, '../../firebase-service-account.json');
+// Walk up directories to find firebase-service-account.json
+// Works in both dev (src/services/) and prod (dist/src/services/)
+function findFirebaseConfig(): string | null {
+  let dir = __dirname;
+  for (let i = 0; i < 5; i++) {
+    const candidate = path.join(dir, 'firebase-service-account.json');
+    if (fs.existsSync(candidate)) return candidate;
+    dir = path.dirname(dir);
+  }
+  return null;
+}
+
+const serviceAccountPath = findFirebaseConfig();
 
 let firebaseInitialized = false;
 
 function initFirebase() {
   if (firebaseInitialized || admin.apps.length > 0) return;
 
-  if (!fs.existsSync(serviceAccountPath)) {
-    console.warn('[Firebase] firebase-service-account.json tidak ditemukan. Push notification dinonaktifkan.');
+  if (!serviceAccountPath) {
+    console.warn('[Firebase] firebase-service-account.json tidak ditemukan di project root. Push notification dinonaktifkan.');
     return;
   }
 
