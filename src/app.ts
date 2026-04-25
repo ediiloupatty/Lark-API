@@ -4,6 +4,8 @@
  * Dipisahkan dari index.ts agar bisa di-import oleh test (Supertest)
  * tanpa harus menjalankan server. Semua middleware, route, dan error
  * handler tetap sama persis seperti sebelumnya.
+ *
+ * @version 1.1.0 — CI/CD pipeline + coverage integration
  */
 import express, { Request, Response } from 'express';
 import cors from 'cors';
