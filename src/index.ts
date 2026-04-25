@@ -38,9 +38,22 @@ async function bootstrap() {
   }
 
   // DDL bootstrap menggunakan pool pg langsung
+  // Retry logic karena dalam Docker, DNS resolution bisa lambat beberapa detik
   if (isDbConnected) {
-    try {
-      const client = await pool.connect();
+    let client: any = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        client = await pool.connect();
+        break; // Connected successfully
+      } catch (e: any) {
+        console.warn(`[Bootstrap] Pool connect attempt ${attempt}/3 gagal: ${e.message}`);
+        if (attempt < 3) {
+          await new Promise(r => setTimeout(r, 2000)); // Wait 2s before retry
+        }
+      }
+    }
+
+    if (client) {
       try {
         await client.query(`
           CREATE TABLE IF NOT EXISTS device_tokens (
@@ -82,13 +95,13 @@ async function bootstrap() {
         console.log('[Bootstrap] ✅ Tabel blog_articles sudah siap.');
       } catch (e: any) {
         if (e.code !== '42P07') {
-          console.warn('[Bootstrap] device_tokens warning:', e.message);
+          console.warn('[Bootstrap] DDL warning:', e.message);
         }
       } finally {
         client.release();
       }
-    } catch (e: any) {
-      console.warn('[Bootstrap] Pool connect gagal (diabaikan):', e.message);
+    } else {
+      console.warn('[Bootstrap] ⚠️ Pool connect gagal setelah 3 percobaan. DDL dilewati — tabel mungkin perlu dibuat manual.');
     }
   }
 
