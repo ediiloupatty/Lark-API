@@ -728,16 +728,32 @@ export async function generateDailyBlog(): Promise<{ success: boolean; articles?
     // Generate 1 artikel per run (jalan 2x sehari: pagi 05:00 + sore 17:00 WITA)
     for (let i = 0; i < 1; i++) {
       console.log(`\n[BlogGen] 📝 Membuat Artikel...`);
-      // 3. Ambil 3-5 berita acak dari relevan
-      const chunk = relevant.sort(() => Math.random() - 0.5).slice(0, Math.min(5, relevant.length));
-      console.log(`[BlogGen] 📋 Dipilih: ${chunk.map(s => s.title).join(' | ')}`);
 
-      // Retry loop: jika judul terlalu mirip dengan existing, coba generate ulang (max 3x)
+      // Format judul yang di-rotate setiap retry agar AI tidak stuck di pola yang sama
+      const titleFormats = [
+        'Format PERTANYAAN - contoh: "Kenapa Tagihan Listrik Laundry Terus Naik?"',
+        'Format STUDI KASUS - contoh: "Laundry di Bandung Ini Balik Modal 3 Bulan - Ini Caranya"',
+        'Format HOW-TO - contoh: "Cara Hitung Harga Cuci Per Kilo yang Menguntungkan"',
+        'Format INSIGHT/ANALISIS - contoh: "Yang Jarang Diomongin: Kenapa Pelanggan Laundry Sering Kabur"',
+        'Format WARNING - contoh: "Jangan Buka Laundry Kiloan Sebelum Tahu Ini"',
+      ];
+
+      // Retry loop: jika judul terlalu mirip dengan existing, coba generate ulang (max 5x)
       let article: GeneratedArticle | null = null;
       for (let retry = 0; retry < 5; retry++) {
+        // Re-shuffle chunk berita setiap retry untuk memberi AI konteks yang berbeda
+        const chunk = relevant.sort(() => Math.random() - 0.5).slice(0, Math.min(5, relevant.length));
+        console.log(`[BlogGen] 📋 Retry ${retry + 1} - Dipilih: ${chunk.map(s => s.title).join(' | ')}`);
+
+        // Paksa format judul berbeda setiap retry
+        const forcedFormat = titleFormats[retry % titleFormats.length];
+        const retryContext = retry > 0
+          ? `PENTING: Gunakan ${forcedFormat} untuk judul kali ini. Jangan ulangi pola judul sebelumnya yang ditolak.\n`
+          : '';
+
         try {
           // 4. Generate via Qwen (dengan daftar topik existing)
-          const candidate = await generateArticle(chunk, previousTopics, allKnownTopics);
+          const candidate = await generateArticle(chunk, retryContext + previousTopics, allKnownTopics);
 
           // 5. Cek similaritas judul dengan semua topik yang sudah ada
           const similarityCheck = isTitleTooSimilar(candidate.title, allKnownTopics);
