@@ -823,7 +823,9 @@ export const googleLogin = async (req: Request, res: Response) => {
       },
     });
   } catch (err: any) {
-    console.error('[GoogleLogin Error]', err);
+    console.error('[GoogleLogin Error]', err.message);
+    console.error('[GoogleLogin Stack]', err.stack);
+    console.error('[GoogleLogin Request Body]', JSON.stringify(req.body || {}));
     return res.status(500).json({
       status: 'error',
       success: false,
