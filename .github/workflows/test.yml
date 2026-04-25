@@ -1,0 +1,109 @@
+name: Backend Tests
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'package.json'
+      - 'vitest.config.ts'
+      - 'prisma/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'package.json'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Integration Tests + Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_ci
+          POSTGRES_DB: db_laundry_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres_ci@localhost:5432/db_laundry_test?schema=public
+      JWT_SECRET: ci-test-jwt-secret-not-for-production
+      MAINTENANCE_MODE: "false"
+      MAIL_HOST: smtp.example.com
+      MAIL_PORT: "587"
+      MAIL_SECURE: "false"
+      MAIL_USER: ci@test.com
+      MAIL_PASS: dummy
+      MAIL_FROM: "CI <ci@test.com>"
+      APP_URL: http://localhost:5173
+      GOOGLE_CLIENT_ID: dummy
+      GEMINI_API_KEY: dummy
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Run database migrations
+        run: npx prisma db push --skip-generate --accept-data-loss
+
+      - name: Ensure DDL columns exist
+        run: |
+          npx tsx -e "
+            const { Pool } = require('pg');
+            const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+            async function run() {
+              const c = await pool.connect();
+              await c.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 0');
+              c.release();
+              await pool.end();
+              console.log('DDL OK');
+            }
+            run().catch(e => { console.error(e); process.exit(1); });
+          "
+
+      - name: Run tests with coverage
+        run: npm run test:coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 30
+
+      - name: Comment coverage on PR
+        if: github.event_name == 'pull_request'
+        uses: davelosert/vitest-coverage-report-action@v2
+        with:
+          json-summary-path: coverage/coverage-summary.json
+          json-final-path: coverage/coverage-final.json
