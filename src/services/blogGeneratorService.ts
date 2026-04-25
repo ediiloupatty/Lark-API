@@ -772,7 +772,9 @@ export async function generateDailyBlog(): Promise<{ success: boolean; articles?
       }
 
       if (!article) {
-        console.warn(`[BlogGen] ⚠️ Artikel gagal setelah 5 retry (semua mirip existing), skip...`);
+        const errorMsg = 'Artikel gagal setelah 5 retry (semua mirip existing atau error), skip...';
+        console.warn(`[BlogGen] ⚠️ ${errorMsg}`);
+        await sendDiscordNotification({ success: false, error: errorMsg });
         continue;
       }
 
