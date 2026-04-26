@@ -12,7 +12,7 @@ export const getGlobalStats = async (req: AuthRequest, res: Response) => {
     const totalTenants = await db.tenants.count();
     
     // Aggregate total pesanan
-    const totalOrders = await db.orders.count({ where: { deleted_at: null } as any });
+    const totalOrders = await db.orders.count();
     
     // Aggregate total pendapatan (orders selesai / lunas)
     const revenueAgg = await db.orders.aggregate({
@@ -21,7 +21,6 @@ export const getGlobalStats = async (req: AuthRequest, res: Response) => {
       },
       where: {
         status: 'selesai',
-        deleted_at: null as any
       }
     });
 

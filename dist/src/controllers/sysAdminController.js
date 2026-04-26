@@ -10,7 +10,7 @@ const getGlobalStats = async (req, res) => {
         }
         const totalTenants = await db_1.db.tenants.count();
         // Aggregate total pesanan
-        const totalOrders = await db_1.db.orders.count({ where: { deleted_at: null } });
+        const totalOrders = await db_1.db.orders.count();
         // Aggregate total pendapatan (orders selesai / lunas)
         const revenueAgg = await db_1.db.orders.aggregate({
             _sum: {
@@ -18,7 +18,6 @@ const getGlobalStats = async (req, res) => {
             },
             where: {
                 status: 'selesai',
-                deleted_at: null
             }
         });
         return res.status(200).json({
