@@ -1,7 +1,5 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { db as prisma } from '../config/db';
 
 function maskName(name: string): string {
   if (!name) return 'Customer';
