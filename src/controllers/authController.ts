@@ -696,7 +696,13 @@ export const googleLogin = async (req: Request, res: Response) => {
         counter++;
       }
 
-      const slug = (googleName + ' Laundry').toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+      const baseSlug = (googleName + ' Laundry').toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+      let slug = baseSlug;
+      let slugSuffix = 1;
+      while (await db.tenants.findUnique({ where: { slug: slug } })) {
+        slug = `${baseSlug}-${slugSuffix}`;
+        slugSuffix++;
+      }
 
       // Buat tenant + user dalam satu transaksi atomik
       const result = await db.$transaction(async (tx) => {
