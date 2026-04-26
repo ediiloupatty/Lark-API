@@ -149,7 +149,7 @@ export const toggleTenantStatus = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ success: false, error: 'Akses ditolak.' });
     }
 
-    const tenantId = parseInt(req.params.id);
+    const tenantId = parseInt(req.params.id as string);
     if (isNaN(tenantId)) {
       return res.status(400).json({ success: false, error: 'ID Tenant tidak valid.' });
     }
@@ -169,7 +169,7 @@ export const toggleTenantStatus = async (req: AuthRequest, res: Response) => {
     // Catat di audit log
     await db.audit_logs.create({
       data: {
-        actor_user_id: req.user.id,
+        actor_user_id: req.user.user_id,
         tenant_id: tenantId,
         entity_type: 'tenant',
         entity_id: tenantId,
@@ -195,7 +195,7 @@ export const extendSubscription = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ success: false, error: 'Akses ditolak.' });
     }
 
-    const tenantId = parseInt(req.params.id);
+    const tenantId = parseInt(req.params.id as string);
     if (isNaN(tenantId)) {
       return res.status(400).json({ success: false, error: 'ID Tenant tidak valid.' });
     }
@@ -217,7 +217,7 @@ export const extendSubscription = async (req: AuthRequest, res: Response) => {
 
     await db.audit_logs.create({
       data: {
-        actor_user_id: req.user.id,
+        actor_user_id: req.user.user_id,
         tenant_id: tenantId,
         entity_type: 'tenant',
         entity_id: tenantId,
