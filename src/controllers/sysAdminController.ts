@@ -36,7 +36,7 @@ export const getGlobalStats = async (req: AuthRequest, res: Response) => {
         COUNT(*) as orders
       FROM orders
       WHERE tgl_order >= NOW() - INTERVAL '30 days'
-        AND status = 'selesai'
+        AND status != 'dibatalkan'
       GROUP BY DATE(tgl_order)
       ORDER BY DATE(tgl_order) ASC
     `;
