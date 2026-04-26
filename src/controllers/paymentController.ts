@@ -6,15 +6,13 @@ export class PaymentController {
   // Endpoint to create a test transaction for iPaymu Reviewers
   static async createTestTransaction(req: Request, res: Response) {
     try {
-      // In a real app, you'd get the user from req.user, and product details from the request body or database.
-      // For iPaymu Verification purposes, we create a hardcoded test product.
-      
+      const { productName, price } = req.body;
       const appUrl = process.env.APP_URL || 'http://localhost:5173';
 
       const paymentData = await IpaymuService.createPayment({
-        product: ['Lark Laundry - Test Transaction untuk iPaymu'],
+        product: [productName || 'Lark Laundry - Berlangganan'],
         qty: [1],
-        price: [10000], // Rp 10.000 for test
+        price: [price ? parseInt(price) : 10000],
         returnUrl: `${appUrl}/dashboard?payment=success`,
         cancelUrl: `${appUrl}/dashboard?payment=canceled`,
         notifyUrl: `https://www.larklaundry.com/api/payments/notify`, // Webhook URL
