@@ -21,6 +21,7 @@ BigInt.prototype.toJSON = function () {
 
 import authRoutes from './routes/authRoutes';
 import syncRoutes from './routes/syncRoutes';
+import paymentRoutes from './routes/paymentRoutes';
 import { getLandingStats } from './controllers/publicController';
 import { maintenanceMiddleware } from './middlewares/maintenanceMiddleware';
 import { setCsrfCookie, verifyCsrf } from './middlewares/csrfMiddleware';
@@ -78,7 +79,7 @@ app.use((req: Request, res: Response, next) => {
   if (origin && isAllowedOrigin(origin)) return next();
   if (vercelId || (forwardedHost && forwardedHost.endsWith('.vercel.app'))) return next();
   if (platform === 'LarkMobile' || platform === 'LarkWeb') return next();
-  if (req.path.startsWith('/api/v1/public/') || req.path === '/api/v1/health') return next();
+  if (req.path.startsWith('/api/v1/public/') || req.path === '/api/v1/health' || req.path === '/api/v1/payments/notify') return next();
 
   return res.status(403).json({
     status: 'error',
@@ -111,6 +112,7 @@ app.use(setCsrfCookie);
 // Routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/sync', verifyCsrf, syncRoutes);
+app.use('/api/v1/payments', paymentRoutes);
 
 // Public endpoints
 app.get('/api/v1/public/landing-stats', getLandingStats);
