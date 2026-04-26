@@ -17,7 +17,7 @@ export async function registerToken(req: AuthRequest, res: Response): Promise<vo
 
   await registerDeviceToken({
     userId: user.user_id,
-    tenantId: user.tenant_id,
+    tenantId: user.tenant_id as number,
     token,
     platform: platform ?? 'android',
   });
@@ -46,13 +46,13 @@ export async function getNotifications(req: AuthRequest, res: Response): Promise
 
   const [notifications, unreadCount] = await Promise.all([
     db.notifications.findMany({
-      where: { user_id: user.user_id, tenant_id: user.tenant_id },
+      where: { user_id: user.user_id, tenant_id: user.tenant_id as number },
       orderBy: { created_at: 'desc' },
       take: limit,
       skip: offset,
     }),
     db.notifications.count({
-      where: { user_id: user.user_id, tenant_id: user.tenant_id, is_read: false },
+      where: { user_id: user.user_id, tenant_id: user.tenant_id as number, is_read: false },
     }),
   ]);
 
@@ -66,7 +66,7 @@ export async function markAllRead(req: AuthRequest, res: Response): Promise<void
   if (!user) { res.status(401).json({ success: false, message: 'Unauthorized' }); return; }
 
   await db.notifications.updateMany({
-    where: { user_id: user.user_id, tenant_id: user.tenant_id, is_read: false },
+    where: { user_id: user.user_id, tenant_id: user.tenant_id as number, is_read: false },
     data: { is_read: true },
   });
 

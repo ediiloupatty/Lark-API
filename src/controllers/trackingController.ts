@@ -25,8 +25,8 @@ export class TrackingController {
     try {
       const { resi } = req.params;
       
-      const order = await prisma.orders.findUnique({
-        where: { tracking_code: resi },
+      const order: any = await prisma.orders.findUnique({
+        where: { tracking_code: resi as string },
         include: {
           tenants: { select: { name: true } },
           outlets: { select: { nama: true } },

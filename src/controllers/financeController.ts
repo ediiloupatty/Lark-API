@@ -43,7 +43,7 @@ export const addExpense = async (req: AuthRequest, res: Response) => {
     let finalOutletId = outlet_id ? parseInt(outlet_id) : null;
     if (finalOutletId) {
       // [SECURITY FIX] Cross-Tenant Outlet IDOR
-      const verifyOutlet = await db.outlets.findFirst({ where: { id: finalOutletId, tenant_id: tenantId } });
+      const verifyOutlet = await db.outlets.findFirst({ where: { id: finalOutletId, tenant_id: tenantId as number } });
       if (!verifyOutlet) return res.status(403).json({ status: 'error', message: 'Outlet tidak valid atau tidak dimiliki tenant ini.' });
     }
 
@@ -81,13 +81,13 @@ export const updateExpense = async (req: AuthRequest, res: Response) => {
     if (!kategori || !jumlah) return res.status(400).json({ status: 'error', message: 'Kategori dan jumlah wajib diisi.' });
 
     // Verify ownership
-    const existing = await db.expenses.findFirst({ where: { id: expId, tenant_id: tenantId } });
+    const existing = await db.expenses.findFirst({ where: { id: expId, tenant_id: tenantId as number } });
     if (!existing) return res.status(404).json({ status: 'error', message: 'Pengeluaran tidak ditemukan.' });
 
     let finalOutletId = outlet_id ? parseInt(outlet_id) : null;
     if (finalOutletId) {
       // [SECURITY FIX] Cross-Tenant Outlet IDOR
-      const verifyOutlet = await db.outlets.findFirst({ where: { id: finalOutletId, tenant_id: tenantId } });
+      const verifyOutlet = await db.outlets.findFirst({ where: { id: finalOutletId, tenant_id: tenantId as number } });
       if (!verifyOutlet) return res.status(403).json({ status: 'error', message: 'Outlet tidak valid atau tidak dimiliki tenant ini.' });
     }
 
@@ -117,7 +117,7 @@ export const deleteExpense = async (req: AuthRequest, res: Response) => {
     const id = parseInt(idParam as string);
     if (!id) return res.status(400).json({ status: 'error', message: 'ID pengeluaran diperlukan.' });
 
-    const result = await db.expenses.deleteMany({ where: { id, tenant_id: req.user?.tenant_id } });
+    const result = await db.expenses.deleteMany({ where: { id, tenant_id: req.user?.tenant_id as number } });
     if (result.count === 0) {
       return res.status(404).json({ status: 'error', message: 'Pengeluaran tidak ditemukan.' });
     }

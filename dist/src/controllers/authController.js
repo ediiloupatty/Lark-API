@@ -398,11 +398,11 @@ const forgotPassword = async (req, res) => {
             return res.status(400).json({ status: 'error', message: 'Email wajib diisi.' });
         }
         const cleanEmail = email.trim().toLowerCase();
-        // Selalu kembalikan respons sukses agar email valid tidak bisa di-enumerate
-        const GENERIC_OK = {
-            status: 'success',
-            message: 'Jika email terdaftar sebagai admin, link reset akan dikirim ke inbox Anda dalam beberapa menit.',
-        };
+        // Validasi format email dasar
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(cleanEmail)) {
+            return res.status(400).json({ status: 'error', message: 'Format email tidak valid.' });
+        }
         // Cari admin berdasarkan email — karyawan tidak bisa reset via web
         const user = await db_1.db.users.findFirst({
             where: {
@@ -412,9 +412,14 @@ const forgotPassword = async (req, res) => {
                 role: { in: ['owner', 'admin', 'super_admin'] },
             },
         });
+        // Jika email tidak terdaftar sebagai admin, kembalikan error eksplisit
         if (!user) {
+            // Artificial delay agar response time tidak berbeda signifikan (mitigasi timing attack)
             await new Promise(r => setTimeout(r, 400 + Math.random() * 300));
-            return res.json(GENERIC_OK);
+            return res.status(404).json({
+                status: 'error',
+                message: 'Email tidak terdaftar dalam sistem. Pastikan email yang Anda masukkan benar.',
+            });
         }
         // Buat token acak 32 byte; simpan SHA-256 hash-nya di DB
         const rawToken = crypto_1.default.randomBytes(32).toString('hex');
@@ -430,16 +435,26 @@ const forgotPassword = async (req, res) => {
         // URL reset mengarah ke halaman React
         const appUrl = process.env.APP_URL || 'http://localhost:5173';
         const resetUrl = `${appUrl}/reset-password?token=${rawToken}&email=${encodeURIComponent(cleanEmail)}`;
-        // Kirim email — jika gagal (mis. env belum dikonfigurasi), log saja tanpa expose error ke user
+        // Kirim email — jika gagal, return error agar user tahu pengiriman tidak berhasil
         try {
             await (0, mailer_1.sendPasswordResetEmail)(cleanEmail, resetUrl, user.nama || user.username);
         }
         catch (mailErr) {
             console.error('[ForgotPassword] Gagal kirim email:', mailErr.message);
-            // Tetap kembalikan GENERIC_OK agar email valid tidak bisa di-enumerate
-            // Tapi log di server agar admin tahu email tidak terkirim
+            // Bersihkan token yang sudah disimpan agar tidak tergantung
+            await db_1.db.users.update({
+                where: { id: user.id },
+                data: { reset_token: null, reset_token_expires: null },
+            });
+            return res.status(500).json({
+                status: 'error',
+                message: 'Gagal mengirim email. Silakan coba beberapa saat lagi.',
+            });
         }
-        return res.json(GENERIC_OK);
+        return res.json({
+            status: 'success',
+            message: 'Link reset password sudah dikirim ke inbox Anda. Periksa juga folder spam.',
+        });
     }
     catch (err) {
         console.error('[ForgotPassword Error]', err);
@@ -721,7 +736,9 @@ const googleLogin = async (req, res) => {
         });
     }
     catch (err) {
-        console.error('[GoogleLogin Error]', err);
+        console.error('[GoogleLogin Error]', err.message);
+        console.error('[GoogleLogin Stack]', err.stack);
+        console.error('[GoogleLogin Request Body]', JSON.stringify(req.body || {}));
         return res.status(500).json({
             status: 'error',
             success: false,
