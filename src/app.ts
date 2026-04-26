@@ -22,6 +22,7 @@ BigInt.prototype.toJSON = function () {
 import authRoutes from './routes/authRoutes';
 import syncRoutes from './routes/syncRoutes';
 import paymentRoutes from './routes/paymentRoutes';
+import trackingRoutes from './routes/trackingRoutes';
 import { getLandingStats } from './controllers/publicController';
 import { maintenanceMiddleware } from './middlewares/maintenanceMiddleware';
 import { setCsrfCookie, verifyCsrf } from './middlewares/csrfMiddleware';
@@ -115,6 +116,7 @@ app.use('/api/v1/sync', verifyCsrf, syncRoutes);
 app.use('/api/v1/payments', paymentRoutes);
 
 // Public endpoints
+app.use('/api/v1/public/track', trackingRoutes);
 app.get('/api/v1/public/landing-stats', getLandingStats);
 app.get('/api/v1/public/blog', listBlogArticles);
 app.post('/api/v1/public/blog/generate', triggerGenerate);
