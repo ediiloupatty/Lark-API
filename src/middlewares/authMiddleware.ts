@@ -7,7 +7,7 @@ export interface AuthRequest extends Request {
     user_id: number;
     username: string;
     role: string;
-    tenant_id: number;
+    tenant_id: number | null;
     outlet_id: number | null;
     nama?: string;
     token_version?: number;

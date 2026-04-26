@@ -10,8 +10,28 @@ const pg_1 = require("pg");
 const adapter_pg_1 = require("@prisma/adapter-pg");
 const dotenv_1 = __importDefault(require("dotenv"));
 const path_1 = __importDefault(require("path"));
-// Fix import hoisting bug: Load .env before initializing Prisma
-dotenv_1.default.config({ path: path_1.default.join(__dirname, '../../.env') });
+const fs_1 = __importDefault(require("fs"));
+/**
+ * Resolve .env path yang benar baik di development (src/) maupun production (dist/).
+ *
+ * Masalah sebelumnya:
+ *   - Di dev: __dirname = /project/src/config → ../../.env = /project/.env ✅
+ *   - Di prod: __dirname = /project/dist/src/config → ../../.env = /project/dist/.env ❌
+ *
+ * Solusi: Walk up dari __dirname sampai menemukan directory yang mengandung .env
+ */
+function findEnvFile() {
+    let dir = __dirname;
+    for (let i = 0; i < 5; i++) {
+        const candidate = path_1.default.join(dir, '.env');
+        if (fs_1.default.existsSync(candidate))
+            return candidate;
+        dir = path_1.default.dirname(dir);
+    }
+    // Fallback: pakai path relatif seperti sebelumnya
+    return path_1.default.join(__dirname, '../../.env');
+}
+dotenv_1.default.config({ path: findEnvFile() });
 // ── Pool Configuration ───────────────────────────────────────────────────────
 // Pool dikonfigurasi agar tahan terhadap gangguan koneksi sementara.
 const pool = new pg_1.Pool({

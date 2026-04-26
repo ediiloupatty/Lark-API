@@ -123,7 +123,7 @@ const pushChanges = async (req, res) => {
                         continue;
                     }
                 }
-                const dte = new Date().toISOString().substring(0, 10).replace(/-/g, '');
+                const dte = new Date().toISOString().substring(2, 10).replace(/-/g, '');
                 const orderNumber = `INV-${tenantId}-${dte}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
                 // Build relation payload for Order creation with Prisma
                 let serverCalculatedTotal = 0;

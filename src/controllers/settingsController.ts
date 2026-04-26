@@ -7,7 +7,7 @@ export const getSettings = async (req: AuthRequest, res: Response) => {
   try {
     const tenantId = req.user?.tenant_id;
     const settings = await db.tenant_settings.findMany({
-      where: { tenant_id: tenantId }
+      where: { tenant_id: tenantId as number }
     });
     
     const settingsMap = settings.reduce((acc, curr) => {
@@ -53,7 +53,7 @@ export const getSubscriptions = async (req: AuthRequest, res: Response) => {
     const tenantId = req.user?.tenant_id;
     
     const tenant = await db.tenants.findUnique({
-      where: { id: tenantId },
+      where: { id: tenantId as number },
       select: { subscription_plan: true, subscription_until: true }
     });
     

@@ -110,10 +110,13 @@ app.use(maintenanceMiddleware);
 // CSRF Protection
 app.use(setCsrfCookie);
 
+import sysAdminRoutes from './routes/sysAdminRoutes';
+
 // Routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/sync', verifyCsrf, syncRoutes);
 app.use('/api/v1/payments', paymentRoutes);
+app.use('/api/v1/sys-admin', verifyCsrf, sysAdminRoutes);
 
 // Public endpoints
 app.use('/api/v1/public/track', trackingRoutes);

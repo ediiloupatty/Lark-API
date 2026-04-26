@@ -1,8 +1,12 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerRateLimiter = exports.clearFailedLogin = exports.recordFailedLogin = exports.loginRateLimiter = void 0;
+const IS_TEST = process.env.NODE_ENV === 'test';
 const memoryStore = new Map();
 const loginRateLimiter = (req, res, next) => {
+    // Bypass rate limit di test environment
+    if (IS_TEST)
+        return next();
     const ip = req.ip || req.socket?.remoteAddress || '0.0.0.0';
     const record = memoryStore.get(ip);
     const now = Date.now();
@@ -46,6 +50,9 @@ exports.clearFailedLogin = clearFailedLogin;
 // Mencegah spam pembuatan tenant/user yang menghabiskan resource DB.
 const registerStore = new Map();
 const registerRateLimiter = (req, res, next) => {
+    // Bypass rate limit di test environment
+    if (IS_TEST)
+        return next();
     const ip = req.ip || req.socket?.remoteAddress || '0.0.0.0';
     const record = registerStore.get(ip);
     const now = Date.now();

@@ -5,24 +5,81 @@
  * Service utama untuk auto-generate blog articles:
  * 1. Fetch RSS feeds dari beberapa sumber berita
  * 2. Filter berita terkait laundry/bisnis/UMKM
- * 3. Gabungkan 3-5 berita → kirim ke Gemini AI
- * 4. Gemini rewrite menjadi 1 artikel blog unik
+ * 3. Gabungkan 3-5 berita → kirim ke Qwen AI
+ * 4. Qwen rewrite menjadi 1 artikel blog unik
  * 5. Simpan ke database PostgreSQL
+ * 6. Kirim notifikasi ke Discord
  *
- * Biaya: Rp 0 (Gemini free tier)
- * Beban VPS: Minimal (~10 detik per generate)
+ * Jadwal: 05:00 + 17:00 WITA (1 artikel per run)
+ * Biaya: ~Rp 658/bulan (Qwen Flash)
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateDailyBlog = generateDailyBlog;
 const db_1 = require("../config/db");
+// ── Discord Notification ──────────────────────────────────────────────────────
+async function sendDiscordNotification(options) {
+    const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+    if (!webhookUrl) {
+        console.warn('[Discord] ⚠️ DISCORD_WEBHOOK_URL tidak ditemukan, skip notifikasi');
+        return;
+    }
+    const now = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Makassar' });
+    try {
+        const embed = options.success
+            ? {
+                title: '✅ Blog Berhasil Di-Generate!',
+                color: 0x00d26a, // hijau
+                fields: [
+                    { name: '📝 Judul', value: options.title || '-', inline: false },
+                    { name: '🏷️ Kategori', value: options.category || '-', inline: true },
+                    { name: '🆔 Article ID', value: `${options.articleId || '-'}`, inline: true },
+                    { name: '📊 Total Artikel', value: `${options.totalArticles || '-'}`, inline: true },
+                ],
+                footer: { text: `Lark Blog Generator • ${now} WITA` },
+            }
+            : {
+                title: '❌ Blog Generation Gagal!',
+                color: 0xff4757, // merah
+                fields: [
+                    { name: '⚠️ Error', value: options.error || 'Unknown error', inline: false },
+                ],
+                footer: { text: `Lark Blog Generator • ${now} WITA` },
+            };
+        await fetch(webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                username: 'Lark Blog Bot',
+                avatar_url: 'https://larklaundry.com/logo192.png',
+                embeds: [embed],
+            }),
+        });
+        console.log('[Discord] 📨 Notifikasi terkirim!');
+    }
+    catch (err) {
+        console.warn(`[Discord] ⚠️ Gagal kirim notifikasi: ${err.message}`);
+    }
+}
 // ── RSS Feed Sources ──────────────────────────────────────────────────────────
 const RSS_FEEDS = [
+    // ── Media Indonesia ──
     'https://www.antaranews.com/rss/ekonomi-bisnis.xml',
     'https://www.cnnindonesia.com/ekonomi/rss',
-    'https://www.suara.com/rss/bisnis',
     'https://www.cnbcindonesia.com/news/rss',
-    'https://www.liputan6.com/rss',
-    'https://sindikasi.okezone.com/index.php/rss/0/RSS2.0'
+    'https://sindikasi.okezone.com/index.php/rss/0/RSS2.0',
+    'https://www.tribunnews.com/rss',
+    'https://www.jpnn.com/index.php?mib=rss',
+    'https://www.viva.co.id/get/all',
+    'https://www.sindonews.com/feed',
+    'https://waspada.co.id/feed/',
+    'https://online24jam.com/feed/',
+    'https://thebalitimes.com/feed/',
+    'https://feeds.indonesianews.net/rss/f9295dc05093c851',
+    // ── Media Internasional ──
+    'https://en.antaranews.com/rss/news.xml',
+    'http://rss.cnn.com/rss/edition.rss',
+    'https://feeds.bbci.co.uk/news/rss.xml',
+    'https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml',
 ];
 // Keywords untuk filter berita terkait laundry/bisnis/viral/lucu
 const KEYWORDS = [
@@ -58,6 +115,58 @@ function detectCategoryFallback(text) {
             return cat;
     }
     return 'bisnis';
+}
+// ── Fetch Existing Topics from Database ───────────────────────────────────────
+// Query semua judul artikel yang sudah ada di DB agar AI tidak membuat topik duplikat
+async function fetchExistingTopics() {
+    const client = await db_1.pool.connect();
+    try {
+        const result = await client.query(`SELECT title FROM blog_articles ORDER BY created_at DESC LIMIT 100`);
+        return result.rows.map((r) => r.title);
+    }
+    catch (e) {
+        console.warn(`[BlogGen] ⚠️ Gagal fetch existing topics: ${e.message}`);
+        return [];
+    }
+    finally {
+        client.release();
+    }
+}
+// ── Title Similarity Check ────────────────────────────────────────────────────
+// Cek apakah judul baru terlalu mirip dengan judul yang sudah ada di database.
+// Menggunakan word overlap ratio + number pattern matching.
+function isTitleTooSimilar(newTitle, existingTitles) {
+    const normalize = (t) => t.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 2);
+    const newWords = new Set(normalize(newTitle));
+    if (newWords.size === 0)
+        return { similar: false };
+    // Extract leading number pattern (e.g., "70%", "5", "10.3%")
+    const numPattern = (t) => t.match(/^[\d,.]+%?/)?.[0] || '';
+    const newNumPattern = numPattern(newTitle.trim());
+    for (const existing of existingTitles) {
+        const existingWords = new Set(normalize(existing));
+        if (existingWords.size === 0)
+            continue;
+        // Hitung kata yang sama
+        let overlap = 0;
+        for (const word of newWords) {
+            if (existingWords.has(word))
+                overlap++;
+        }
+        // Threshold 35% word overlap → terlalu mirip
+        // Sengaja longgar agar AI punya ruang untuk variasi topik serupa
+        const ratio = overlap / Math.min(newWords.size, existingWords.size);
+        if (ratio >= 0.35) {
+            return { similar: true, matchedTitle: existing };
+        }
+        // Cek jika pola angka pembuka sama DAN ada 3+ kata overlap → sangat mirip
+        // Ini menangkap kasus "70% Laundry X" vs "70% Pemilik Laundry Y"
+        const existingNumPattern = numPattern(existing.trim());
+        if (newNumPattern && existingNumPattern && newNumPattern === existingNumPattern && overlap >= 3) {
+            return { similar: true, matchedTitle: existing };
+        }
+    }
+    return { similar: false };
 }
 // ── RSS Parser (lightweight, no external dependency) ──────────────────────────
 function parseRssXml(xml) {
@@ -149,7 +258,11 @@ async function callQwen(prompt) {
         for (let attempt = 1; attempt <= 3; attempt++) {
             try {
                 console.log(`[BlogGen] 🤖 Trying ${model} (attempt ${attempt}/3)...`);
+                // Timeout 90 detik untuk API call (hindari hang selamanya)
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 90_000);
                 const res = await fetch(`${DASHSCOPE_BASE}/chat/completions`, {
+                    signal: controller.signal,
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -160,14 +273,45 @@ async function callQwen(prompt) {
                         messages: [
                             {
                                 role: 'system',
-                                content: 'Kamu adalah penulis blog profesional untuk Lark Laundry, platform manajemen bisnis laundry di Indonesia. Tulis dalam Bahasa Indonesia yang profesional dan mudah dipahami.',
+                                content: `Kamu adalah Andi, seorang mantan pemilik laundry kiloan di Surabaya selama 7 tahun yang sekarang jadi content writer freelance untuk blog Lark Laundry. Kamu paham bisnis laundry dari pengalaman langsung - mulai dari beli mesin bekas sampai handle komplain pelanggan jam 11 malam.
+
+IDENTITAS & SUARA:
+- Kamu bukan AI. Kamu manusia dengan opini, pengalaman, dan kadang cerita yang agak random tapi relatable.
+- Kamu pernah rugi, pernah salah pilih supplier, pernah kehilangan pelanggan - dan kamu ceritakan itu dengan jujur.
+- Kamu tahu nama-nama daerah di Indonesia (Rungkut, Ciledug, Tanah Abang, Pasar Senen, Cibubur, Gresik, Semarang, Makassar, dll).
+- Kamu tahu merek-merek nyata: Rinso, Downy, Molto, SoKlin, Electrolux, LG, Samsung, Sharp, Daikin.
+- Kamu tahu harga-harga realistis: deterjen bulk, listrik per kWh, sewa ruko, gaji karyawan laundry.
+
+GAYA MENULIS WAJIB:
+- Campur kalimat pendek dan panjang secara ACAK. Kadang 3 kata. Kadang 35 kata.
+- Pakai bahasa Indonesia santai-profesional. Boleh: "nggak", "banget", "nih", "sih", "dong", "deh", "emang", "udah", "gitu".
+- Variasi pembuka paragraf: "Nah,", "Jujur aja,", "Cerita dikit,", "Gini loh,", "Yang bikin kaget,", "Eh tapi,", pertanyaan, fakta, cerita.
+- JANGAN buat semua paragraf panjangnya sama. Ada yang 1 kalimat, ada yang 5 kalimat.
+- Boleh sedikit "imperfect" - manusia nggak selalu nulis grammar sempurna.
+- Sisipkan humor ringan atau observasi lucu sesekali.
+
+FRASA TERLARANG KERAS (JANGAN PERNAH PAKAI):
+"Di era digital ini", "Di era modern", "Dalam konteks ini", "Perlu diketahui bahwa", "Dengan demikian", "Tak bisa dipungkiri", "Menariknya", "Yang perlu digarisbawahi", "Penting untuk dicatat", "Sebagai kesimpulan", "Mari kita", "Pada akhirnya", "Tidak dapat dipungkiri", "Seiring berjalannya waktu", "Patut diakui", "Secara keseluruhan".
+
+SEO AWARENESS:
+- Sisipkan keyword "bisnis laundry", "laundry kiloan", "usaha laundry" secara natural (2-3x per artikel, jangan keyword stuffing).
+- Judul harus mengandung keyword utama.
+- Excerpt harus compelling dan mengandung keyword.
+- Gunakan <h2> dan <h3> yang mengandung keyword turunan secara natural.
+
+ATURAN FORMAT KRITIS:
+- JANGAN PERNAH pakai --- (tiga strip) di dalam konten. Ini akan merusak sistem parser.
+- Pembuka artikel WAJIB pakai <p>, BUKAN <h2>. Tag <h2> hanya untuk judul section/sub-topik.
+- JANGAN pakai markdown apapun. HANYA HTML tags.`,
                             },
                             { role: 'user', content: prompt },
                         ],
-                        temperature: 0.7,
-                        max_tokens: 4096,
+                        temperature: 0.9,
+                        top_p: 0.95,
+                        max_tokens: 5000,
                     }),
                 });
+                clearTimeout(timeout);
                 if (res.status === 429) {
                     console.warn(`[BlogGen] ⏳ Rate limited (${model}), waiting 10s...`);
                     await new Promise(r => setTimeout(r, 10000));
@@ -203,39 +347,109 @@ function createSlug(title) {
         .substring(0, 100)
         + '-' + Date.now().toString(36);
 }
-async function generateArticle(newsItems, previousTopics = '') {
+async function generateArticle(newsItems, previousTopics = '', existingTopics = []) {
     const newsContext = newsItems
-        .map((n, i) => `Berita ${i + 1}: "${n.title}"\n${n.description}`)
+        .map((n, i) => `Berita ${i + 1}: "${n.title}"\nSumber: ${n.link}\n${n.description}`)
         .join('\n\n');
-    const prompt = `Kamu adalah penulis blog profesional untuk Lark Laundry, platform manajemen bisnis laundry di Indonesia.
+    // Format daftar topik yang sudah ada di database untuk dimasukkan ke prompt
+    const existingTopicsBlock = existingTopics.length > 0
+        ? `\nARTIKEL YANG SUDAH ADA DI DATABASE (DILARANG KERAS menulis topik yang sama atau mirip):\n${existingTopics.map((t, i) => `${i + 1}. ${t}`).join('\n')}\nKamu WAJIB membuat topik yang BENAR-BENAR BARU dan BERBEDA dari semua judul di atas. Jangan pakai judul yang mirip, jangan pakai sudut pandang yang sama, dan jangan pakai kata kunci utama yang sama.\n`
+        : '';
+    const prompt = `Tulis 1 artikel blog untuk Lark Laundry. Pakai berita ini sebagai inspirasi konteks, tapi tulis dengan gayamu sendiri.
 
-Dari berita-berita berikut, buatkan 1 artikel blog UNIK dalam Bahasa Indonesia yang relevan untuk pelaku bisnis laundry/UMKM. Jika berita tidak terkait laundry, jadikan itu sebagai studi kasus, cerita lucu, tren viral, inspirasi nostalgia, atau pelajaran bisnis, TAPI selalu hubungkan kembali (bridge) ke operasional bisnis laundry agar relevan dan tidak membingungkan CEO atau pembaca kami.
-
-Berita Sumber:
+Berita Referensi:
 ${newsContext}
+${existingTopicsBlock}
+${previousTopics ? `TOPIK YANG SUDAH ADA (WAJIB BEDA TOTAL - beda sudut pandang, beda keyword utama, beda industri terkait):\n${previousTopics}\n` : ''}
 
-${previousTopics ? `TOPIK YANG SUDAH DIBAHAS (WAJIB PILIH TOPIK YANG BERBEDA TOTAL, BUKAN VARIASI DARI TOPIK INI):\n${previousTopics}\nPilih sudut pandang, industri terkait, atau isu yang BENAR-BENAR BERBEDA dari topik di atas.\n\n` : ''}
+===== ATURAN KONTEN =====
 
-ATURAN KETAT:
-1. JANGAN copy-paste berita. Tulis ulang dengan sudut pandang baru yang relevan untuk pemilik bisnis laundry.
-2. Gunakan gaya bahasa yang profesional, menarik, santai, tapi mudah dipahami.
-3. Sertakan tips praktis yang bisa diterapkan oleh pemilik laundry.
-4. Hubungkan dengan konteks bisnis laundry di Indonesia.
-5. DILARANG KERAS menggunakan karakter markdown: **, *, —, --, ##, ###. Tulis teks biasa tanpa simbol-simbol tersebut.
-6. Untuk penekanan teks, gunakan tag HTML <strong> saja, BUKAN tanda bintang (**).
-7. Untuk dash/strip, gunakan tanda hubung biasa (-) bukan em-dash (—).
+1. ANTI-DETEKSI AI (PRIORITAS TERTINGGI):
+   - Variasi panjang kalimat WAJIB acak dan dramatis.
+     Contoh flow natural: "Boros. Itu kata yang paling sering saya dengar. Padahal kalau mau dihitung-hitung, ada banyak cara untuk pangkas biaya tanpa mengorbankan kualitas cucian yang kita kasih ke pelanggan setiap harinya."
+   - JANGAN mulai semua paragraf dengan pola yang sama.
+   - WAJIB sisipkan 2-3 anekdot personal realistis. Sebutkan nama daerah, harga spesifik, merek produk.
+     Contoh: "Waktu pertama buka laundry di Gang Melati, Depok, modal saya cuma Rp4,5 juta..."
+   - Pakai bahasa santai-profesional: "nggak", "banget", "nih", "sih", "emang", "gitu" boleh.
+   - Tambahkan observasi atau humor ringan sesekali.
+   - Sesekali pakai kalimat yang tidak sempurna grammarnya - seperti orang sungguhan nulis.
 
-FORMAT OUTPUT (HARUS PERSIS):
+2. FRASA TERLARANG (AI akan terdeteksi kalau pakai ini):
+   "Di era digital", "Di era modern", "Dalam konteks ini", "Perlu diketahui", "Dengan demikian", "Tak bisa dipungkiri", "Menariknya", "Yang perlu digarisbawahi", "Penting untuk dicatat", "Sebagai kesimpulan", "Mari kita", "Pada akhirnya", "Tidak dapat dipungkiri", "Seiring berjalannya", "Secara keseluruhan", "Patut diakui", "Dapat disimpulkan", "Oleh karena itu".
+   Juga jangan buka dengan kalimat definisi, pernyataan umum, atau "Pada tahun...".
+
+3. PEMBUKA ARTIKEL (HARUS pakai <p>, BUKAN <h2>):
+   Pilih SATU gaya secara acak:
+   a) Anekdot: "<p>Kemarin sore, anak buah saya telepon panik. 'Bos, mesin nomor 3 mati lagi.' Padahal baru diservis 2 minggu lalu.</p>"
+   b) Pertanyaan: "<p>Kapan terakhir kamu ngecek berapa liter air yang kebuang sia-sia di laundry-mu setiap hari? Coba deh hitung.</p>"
+   c) Fakta kaget: "<p>Rp900 ribu. Itu uang yang 'hilang' setiap bulan dari laundry rata-rata di Jabodetabek cuma gara-gara timer mesin yang nggak diatur.</p>"
+   d) Kontradiksi: "<p>Semua orang bilang bisnis laundry itu gampang. Tinggal cuci, setrika, antar. Kenyataannya? Jauh dari itu.</p>"
+
+4. STRUKTUR ARTIKEL (ikuti urutan ini):
+   - <p> Pembuka (cerita/pertanyaan/fakta) - 1-3 paragraf
+   - <h2> Section 1: Masalah/konteks utama - 2-3 paragraf
+   - <h3> Sub-poin jika perlu
+   - <h2> Section 2: Solusi/strategi/tips - paragraf + list
+   - <h2> Section 3: Contoh nyata/studi kasus - 2-3 paragraf
+   - <h2> Section penutup: Insight + CTA natural ke Lark Laundry
+   - JANGAN taruh cerita di tag <h2> atau <h3>. Heading hanya untuk judul section pendek.
+
+5. SEO OPTIMIZATION:
+   - Sisipkan keyword "bisnis laundry", "laundry kiloan", "usaha laundry" secara natural 2-4x dalam artikel.
+   - Heading <h2> harus informatif dan mengandung keyword turunan. Contoh: "Kenapa Laundry Kiloan Masih Jadi Pilihan Favorit?"
+   - Meta excerpt harus mengandung keyword utama.
+
+6. KONTEN BERKUALITAS:
+   - Data/angka spesifik (boleh estimasi realistis): harga, persentase, jumlah pelanggan
+   - Nama kota/daerah nyata di Indonesia
+   - Merek produk nyata: Rinso, Downy, Molto, SoKlin, Electrolux, LG, Samsung
+   - Minimal 3-5 tips actionable yang bisa langsung dipraktikkan
+   - Kalkulasi biaya/ROI sederhana jika relevan
+   - CTA penutup yang natural (bukan hard-sell): "Kalau mau mulai digitalisasi, Lark Laundry bisa jadi langkah pertama yang pas."
+   - SITASI SUMBER DENGAN LINK: Saat menggunakan data atau insight dari berita referensi, WAJIB buat link clickable ke berita aslinya menggunakan tag <a>.
+     Kamu sudah diberi URL sumber untuk setiap berita. Gunakan URL tersebut untuk membuat hyperlink.
+     Contoh BAGUS: "Menurut <a href=\"https://www.cnbcindonesia.com/news/xxx\" target=\"_blank\" rel=\"noopener noreferrer\">laporan CNBC Indonesia</a>, ekspor otomotif RI melonjak bulan ini."
+     Contoh BAGUS: "<a href=\"https://www.antaranews.com/berita/xxx\" target=\"_blank\" rel=\"noopener noreferrer\">Data dari Antara News</a> menunjukkan bahwa UMKM di sektor jasa tumbuh 12% tahun ini."
+     JANGAN pakai format footnote [1][2]. Sisipkan link secara natural di dalam kalimat.
+     Minimal 1-2 sitasi berlink per artikel.
+
+7. FORMAT HTML KETAT:
+   - Gunakan HANYA: <h2>, <h3>, <p>, <ul>, <li>, <ol>, <strong>, <blockquote>
+   - JANGAN pakai <h1>.
+   - JANGAN pakai markdown apapun: **, *, ##, ###, ---
+   - DILARANG KERAS pakai --- (tiga strip/horizontal rule) di dalam konten. Ini akan MERUSAK PARSER.
+   - Untuk dash/strip, pakai "-" biasa, BUKAN em-dash "—".
+   - Minimal 800 kata, idealnya 1000-1200 kata.
+   - Setiap paragraf <p> harus punya isi. Jangan taruh narasi panjang di dalam tag heading.
+
+===== FORMAT JUDUL (KRITIS - BACA BAIK-BAIK) =====
+JUDUL WAJIB menggunakan salah satu FORMAT BERBEDA ini secara acak (jangan selalu pakai format yang sama):
+- Format pertanyaan: "Kenapa Tagihan Listrik Laundry-mu Terus Naik Tiap Bulan?"
+- Format studi kasus: "Laundry di Bekasi Ini Balik Modal dalam 4 Bulan - Ini Rahasianya"
+- Format how-to: "Cara Hitung Harga Cuci Per Kilo yang Nggak Bikin Rugi"
+- Format insight: "Yang Jarang Diomongin: Kenapa Pelanggan Laundry Pindah ke Kompetitor"
+- Format data/fakta: "Survey 200 Pemilik Laundry: Ini Sumber Kerugian Terbesar Mereka"
+- Format cerita: "Dari Kos-kosan ke Ruko: Perjalanan 3 Tahun Laundry Kiloan di Malang"
+- Format tips singkat: "Trik Sederhana Kurangi Komplain Pelanggan Laundry Tanpa Tambah Biaya"
+- Format warning: "Jangan Buka Laundry Kiloan Sebelum Hitung Ini Dulu"
+
+POLA YANG DILARANG KERAS untuk judul (karena sudah terlalu banyak dipakai):
+- "X [Kata] yang Bikin [sesuatu]" (contoh: "5 Kebiasaan yang Bikin Rugi", "7 Kesalahan yang Bikin Gagal")
+- "X% [Sesuatu] Nggak Sadar..." (contoh: "70% Pemilik Laundry Nggak Sadar...")
+- "Ini yang Bikin..." di awal judul
+Judul max 80 karakter. TIDAK harus pakai angka.
+
+===== FORMAT OUTPUT (HARUS PERSIS SEPERTI INI) =====
 ---TITLE---
-[Judul artikel yang menarik, max 80 karakter, TANPA tanda **, *, atau —]
+[Tulis judul sesuai aturan FORMAT JUDUL di atas. Pilih format yang BELUM banyak dipakai.]
 ---EXCERPT---
-[Ringkasan singkat 1-2 kalimat, max 160 karakter]
+[1-2 kalimat bikin penasaran, max 160 karakter, HARUS mengandung keyword "laundry"]
 ---CATEGORY---
-[Pilih SATU kategori paling relevan dari daftar berikut: tips-operasional, panduan-pemula, keuangan, teknologi, inspirasi, industri]
+[Pilih SATU: tips-operasional, panduan-pemula, keuangan, teknologi, inspirasi, industri]
 ---READTIME---
-[estimasi waktu baca, contoh: "5 min"]
+[contoh: "7 min"]
 ---CONTENT---
-[Konten artikel dalam format HTML murni. Gunakan tag: <h2>, <h3>, <p>, <ul>, <li>, <strong>. JANGAN gunakan <h1>. JANGAN gunakan markdown (**, *, ##). Panjang minimal 800 kata.]`;
+[Artikel HTML lengkap. WAJIB dimulai dengan <p>, bukan <h2>. JANGAN pakai --- di dalam konten. Minimal 800 kata.]`;
     const raw = await callQwen(prompt);
     // Log raw response for debugging
     console.log(`[BlogGen] 📄 Raw response (first 300 chars): ${raw.slice(0, 300)}`);
@@ -244,6 +458,10 @@ FORMAT OUTPUT (HARUS PERSIS):
         .replace(/^```[\s\S]*?\n/, '') // Remove opening ```markdown or ```
         .replace(/\n```\s*$/, '') // Remove closing ```
         .trim();
+    // PENTING: Hapus --- horizontal rules dari konten (merusak parser delimiter)
+    // Tapi jangan hapus delimiter ---TITLE---, ---CONTENT---, dll
+    cleaned = cleaned.replace(/^---$/gm, ''); // Hapus baris yang hanya berisi ---
+    cleaned = cleaned.replace(/\n{3,}/g, '\n\n'); // Collapse triple+ newlines
     // Parse response with tolerant regex (handle extra whitespace, dashes, newlines)
     const titleMatch = cleaned.match(/---\s*TITLE\s*---\s*([\s\S]*?)---\s*EXCERPT\s*---/i);
     const excerptMatch = cleaned.match(/---\s*EXCERPT\s*---\s*([\s\S]*?)---\s*CATEGORY\s*---/i);
@@ -330,6 +548,45 @@ FORMAT OUTPUT (HARUS PERSIS):
     title = sanitizeMarkdown(title);
     excerpt = sanitizeMarkdown(excerpt);
     content = sanitizeMarkdown(content);
+    // ── Tambahkan Section Sumber Referensi di akhir konten ──
+    // Buat daftar link sumber berita yang dipakai sebagai referensi
+    const uniqueLinks = [...new Set(newsItems.map(n => n.link).filter(Boolean))];
+    if (uniqueLinks.length > 0) {
+        const sourceDomain = (url) => {
+            try {
+                const hostname = new URL(url).hostname.replace('www.', '');
+                // Map hostname ke nama media yang lebih readable
+                const mediaNames = {
+                    'antaranews.com': 'Antara News',
+                    'en.antaranews.com': 'Antara News (English)',
+                    'cnnindonesia.com': 'CNN Indonesia',
+                    'cnbcindonesia.com': 'CNBC Indonesia',
+                    'okezone.com': 'Okezone',
+                    'sindikasi.okezone.com': 'Okezone',
+                    'tribunnews.com': 'Tribun News',
+                    'jpnn.com': 'JPNN',
+                    'viva.co.id': 'VIVA',
+                    'sindonews.com': 'Sindo News',
+                    'waspada.co.id': 'Waspada Online',
+                    'online24jam.com': 'Online 24 Jam',
+                    'thebalitimes.com': 'The Bali Times',
+                    'indonesianews.net': 'Indonesia News',
+                    'rss.cnn.com': 'CNN International',
+                    'feeds.bbci.co.uk': 'BBC News',
+                    'rss.nytimes.com': 'The New York Times',
+                    'nytimes.com': 'The New York Times',
+                };
+                return mediaNames[hostname] || hostname;
+            }
+            catch {
+                return 'Sumber';
+            }
+        };
+        const sourceLinks = uniqueLinks
+            .map(url => `<li><a href="${url}" target="_blank" rel="noopener noreferrer">${sourceDomain(url)}</a></li>`)
+            .join('\n');
+        content += `\n\n<h3>Sumber Referensi</h3>\n<ul>\n${sourceLinks}\n</ul>`;
+    }
     return {
         title,
         slug: createSlug(title),
@@ -357,6 +614,12 @@ async function saveArticle(article) {
 async function generateDailyBlog() {
     console.log('[BlogGen] 🚀 Mulai generate blog harian...');
     try {
+        // 0. Fetch existing topics dari database untuk hindari duplikat
+        const existingTopics = await fetchExistingTopics();
+        console.log(`[BlogGen] 📚 Artikel existing di DB: ${existingTopics.length} judul`);
+        if (existingTopics.length > 0) {
+            console.log(`[BlogGen] 📋 Contoh judul terakhir: ${existingTopics.slice(0, 5).join(' | ')}`);
+        }
         // 1. Fetch RSS
         const allNews = await fetchRssFeeds();
         console.log(`[BlogGen] 📰 Total berita: ${allNews.length}`);
@@ -373,35 +636,81 @@ async function generateDailyBlog() {
         }
         const results = [];
         let previousTopics = "";
-        // Generate 2 artikel
-        for (let i = 0; i < 2; i++) {
-            console.log(`\n[BlogGen] 📝 Membuat Artikel ke-${i + 1}/2...`);
-            // 3. Ambil 3-5 berita acak dari relevan
-            const chunk = relevant.sort(() => Math.random() - 0.5).slice(0, Math.min(5, relevant.length));
-            console.log(`[BlogGen] 📋 Dipilih: ${chunk.map(s => s.title).join(' | ')}`);
+        // Track semua topik (DB + baru dibuat hari ini) untuk pengecekan duplikat
+        const allKnownTopics = [...existingTopics];
+        // Generate 1 artikel per run (jalan 2x sehari: pagi 05:00 + sore 17:00 WITA)
+        for (let i = 0; i < 1; i++) {
+            console.log(`\n[BlogGen] 📝 Membuat Artikel...`);
+            // Format judul yang di-rotate setiap retry agar AI tidak stuck di pola yang sama
+            const titleFormats = [
+                'Format PERTANYAAN - contoh: "Kenapa Tagihan Listrik Laundry Terus Naik?"',
+                'Format STUDI KASUS - contoh: "Laundry di Bandung Ini Balik Modal 3 Bulan - Ini Caranya"',
+                'Format HOW-TO - contoh: "Cara Hitung Harga Cuci Per Kilo yang Menguntungkan"',
+                'Format INSIGHT/ANALISIS - contoh: "Yang Jarang Diomongin: Kenapa Pelanggan Laundry Sering Kabur"',
+                'Format WARNING - contoh: "Jangan Buka Laundry Kiloan Sebelum Tahu Ini"',
+            ];
+            // Retry loop: jika judul terlalu mirip dengan existing, coba generate ulang (max 5x)
+            let article = null;
+            for (let retry = 0; retry < 5; retry++) {
+                // Re-shuffle chunk berita setiap retry untuk memberi AI konteks yang berbeda
+                const chunk = relevant.sort(() => Math.random() - 0.5).slice(0, Math.min(5, relevant.length));
+                console.log(`[BlogGen] 📋 Retry ${retry + 1} - Dipilih: ${chunk.map(s => s.title).join(' | ')}`);
+                // Paksa format judul berbeda setiap retry
+                const forcedFormat = titleFormats[retry % titleFormats.length];
+                const retryContext = retry > 0
+                    ? `PENTING: Gunakan ${forcedFormat} untuk judul kali ini. Jangan ulangi pola judul sebelumnya yang ditolak.\n`
+                    : '';
+                try {
+                    // 4. Generate via Qwen (dengan daftar topik existing)
+                    const candidate = await generateArticle(chunk, retryContext + previousTopics, allKnownTopics);
+                    // 5. Cek similaritas judul dengan semua topik yang sudah ada
+                    const similarityCheck = isTitleTooSimilar(candidate.title, allKnownTopics);
+                    if (similarityCheck.similar) {
+                        console.warn(`[BlogGen] 🔄 Judul "${candidate.title}" terlalu mirip dengan "${similarityCheck.matchedTitle}". Retry ${retry + 1}/5...`);
+                        // Tambahkan info retry ke previousTopics agar AI tahu harus berbeda
+                        previousTopics += `- DITOLAK (mirip existing): ${candidate.title}\n`;
+                        continue;
+                    }
+                    article = candidate;
+                    break;
+                }
+                catch (genError) {
+                    console.warn(`[BlogGen] ⚠️ Generate retry ${retry + 1} gagal: ${genError.message}`);
+                }
+            }
+            if (!article) {
+                const errorMsg = 'Artikel gagal setelah 5 retry (semua mirip existing atau error), skip...';
+                console.warn(`[BlogGen] ⚠️ ${errorMsg}`);
+                await sendDiscordNotification({ success: false, error: errorMsg });
+                continue;
+            }
             try {
-                // 4. Generate via Qwen
-                const article = await generateArticle(chunk, previousTopics);
-                console.log(`[BlogGen] ✍️  Artikel ${i + 1}: "${article.title}"`);
-                // 5. Simpan ke DB
+                console.log(`[BlogGen] ✍️  Artikel: "${article.title}"`);
+                // 6. Simpan ke DB
                 const articleId = await saveArticle(article);
                 console.log(`[BlogGen] ✅ Tersimpan! ID: ${articleId}`);
                 results.push({ id: articleId, title: article.title });
                 previousTopics += `- ${article.title}\n`;
-                // Jeda 3 menit antar artikel (hindari rate limit + variasi konten)
-                if (i < 1) {
-                    console.log('[BlogGen] ⏳ Jeda 3 menit sebelum artikel berikutnya...');
-                    await new Promise(r => setTimeout(r, 180_000));
-                }
+                allKnownTopics.push(article.title);
+                // Kirim notifikasi sukses ke Discord
+                await sendDiscordNotification({
+                    success: true,
+                    title: article.title,
+                    category: article.category,
+                    articleId,
+                    totalArticles: existingTopics.length + results.length,
+                });
             }
             catch (articleError) {
-                console.warn(`[BlogGen] ⚠️ Artikel ${i + 1} gagal: ${articleError.message}, lanjut ke berikutnya...`);
+                console.warn(`[BlogGen] ⚠️ Artikel gagal simpan: ${articleError.message}`);
+                await sendDiscordNotification({ success: false, error: articleError.message });
             }
         }
         return { success: true, articles: results };
     }
     catch (e) {
         console.error('[BlogGen] ❌ Gagal:', e.message);
+        await sendDiscordNotification({ success: false, error: e.message });
         return { success: false, error: e.message };
     }
 }
