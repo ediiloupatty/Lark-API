@@ -49,6 +49,8 @@ export class TrackingController {
       const customerName = maskName(order.customers?.nama || '');
       const customerPhone = maskPhone(order.customers?.no_hp || '');
 
+      // BUG-24 FIX: Remove total_harga from public response — financial data leak
+      // Anyone with a tracking code could see order amounts without authentication
       return res.status(200).json({
         success: true,
         data: {
@@ -56,7 +58,6 @@ export class TrackingController {
           status: order.status,
           tgl_order: order.tgl_order,
           estimasi_tanggal: order.estimasi_tanggal,
-          total_harga: order.total_harga,
           metode_antar: order.metode_antar,
           tenant: order.tenants?.name,
           outlet: order.outlets?.nama,
@@ -68,7 +69,6 @@ export class TrackingController {
             layanan: item.services?.nama_layanan || item.jenis_pakaian,
             jumlah: item.jumlah,
             berat: item.berat,
-            subtotal: item.subtotal
           })),
           payment_status: (order as any).payments.length > 0 ? (order as any).payments[0].status_pembayaran : 'pending'
         }
@@ -116,13 +116,15 @@ export class TrackingController {
         return res.status(401).json({ success: false, message: 'Nomor WhatsApp tidak cocok dengan resi.' });
       }
 
-      // Fetch entire history for this customer at this tenant
+      // BUG-23 FIX: Limit history query — this is a PUBLIC endpoint
+      // Without limit, a customer with 10k+ orders could cause memory explosion
       const history: any[] = await prisma.orders.findMany({
         where: {
           tenant_id: order.tenant_id,
           customer_id: order.customer_id
         },
         orderBy: { tgl_order: 'desc' },
+        take: 20, // Limit to 20 most recent orders
         include: {
           order_details: {
             include: { services: { select: { nama_layanan: true } } }
