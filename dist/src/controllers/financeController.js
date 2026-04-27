@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.approvePayment = exports.getPayments = exports.getReports = exports.deleteExpense = exports.updateExpense = exports.addExpense = exports.getExpenses = void 0;
 const db_1 = require("../config/db");
+const r2Service_1 = require("../services/r2Service");
 // --- EXPENSES ---
 const getExpenses = async (req, res) => {
     try {
@@ -12,10 +13,20 @@ const getExpenses = async (req, res) => {
             where.kategori = kategori;
         if (outlet_id)
             where.outlet_id = parseInt(outlet_id);
+        // Filter berdasarkan bulan (format: "YYYY-MM")
+        if (bulan && typeof bulan === 'string' && /^\d{4}-\d{2}$/.test(bulan)) {
+            const [year, month] = bulan.split('-').map(Number);
+            const startDate = new Date(year, month - 1, 1);
+            const endDate = new Date(year, month, 1); // 1st of next month
+            where.tanggal = {
+                gte: startDate,
+                lt: endDate,
+            };
+        }
         const expenses = await db_1.db.expenses.findMany({
             where,
             orderBy: { tanggal: 'desc' },
-            take: 100
+            take: 500, // Raised limit — we now have month filter so results are bounded
         });
         const formatted = expenses.map(e => ({
             ...e,
@@ -43,6 +54,18 @@ const addExpense = async (req, res) => {
             if (!verifyOutlet)
                 return res.status(403).json({ status: 'error', message: 'Outlet tidak valid atau tidak dimiliki tenant ini.' });
         }
+        // ── Upload bukti pengeluaran ke R2 (opsional) ──────────────────
+        let buktiUrl = null;
+        const multerFile = req.file;
+        if (multerFile && (0, r2Service_1.isR2Configured)()) {
+            try {
+                const expIdentifier = `${kategori.replace(/\s+/g, '-')}-${Date.now()}`;
+                buktiUrl = await (0, r2Service_1.uploadToR2)(multerFile, 'expense', tenantId, expIdentifier);
+            }
+            catch (uploadErr) {
+                console.error('[AddExpense] R2 upload error (non-fatal):', uploadErr.message);
+            }
+        }
         const newExpense = await db_1.db.expenses.create({
             data: {
                 tenant_id: tenantId,
@@ -51,7 +74,8 @@ const addExpense = async (req, res) => {
                 jumlah: parseFloat(jumlah),
                 metode_bayar: metode_bayar || 'cash',
                 tanggal: new Date(tanggal || Date.now()),
-                ...(finalOutletId ? { outlet_id: finalOutletId } : {})
+                ...(finalOutletId ? { outlet_id: finalOutletId } : {}),
+                ...(buktiUrl ? { bukti_pengeluaran: buktiUrl } : {}),
             }
         });
         res.status(201).json({
@@ -87,6 +111,22 @@ const updateExpense = async (req, res) => {
             if (!verifyOutlet)
                 return res.status(403).json({ status: 'error', message: 'Outlet tidak valid atau tidak dimiliki tenant ini.' });
         }
+        // ── Upload bukti pengeluaran baru ke R2 (opsional) ─────────────
+        let buktiUrl = undefined;
+        const multerFile = req.file;
+        if (multerFile && (0, r2Service_1.isR2Configured)()) {
+            try {
+                const expIdentifier = `${(kategori || existing.kategori).replace(/\s+/g, '-')}-${Date.now()}`;
+                buktiUrl = await (0, r2Service_1.uploadToR2)(multerFile, 'expense', tenantId, expIdentifier);
+                // Hapus file lama dari R2 jika ada
+                if (existing.bukti_pengeluaran) {
+                    await (0, r2Service_1.deleteFromR2)(existing.bukti_pengeluaran);
+                }
+            }
+            catch (uploadErr) {
+                console.error('[UpdateExpense] R2 upload error (non-fatal):', uploadErr.message);
+            }
+        }
         await db_1.db.expenses.update({
             where: { id: expId },
             data: {
@@ -95,7 +135,8 @@ const updateExpense = async (req, res) => {
                 jumlah: parseFloat(jumlah),
                 metode_bayar: metode_bayar || 'cash',
                 tanggal: new Date(tanggal || existing.tanggal),
-                ...(finalOutletId ? { outlet_id: finalOutletId } : {})
+                ...(finalOutletId ? { outlet_id: finalOutletId } : {}),
+                ...(buktiUrl ? { bukti_pengeluaran: buktiUrl } : {}),
             }
         });
         res.json({ status: 'success', message: 'Pengeluaran diperbarui.' });
@@ -113,10 +154,16 @@ const deleteExpense = async (req, res) => {
         const id = parseInt(idParam);
         if (!id)
             return res.status(400).json({ status: 'error', message: 'ID pengeluaran diperlukan.' });
-        const result = await db_1.db.expenses.deleteMany({ where: { id, tenant_id: req.user?.tenant_id } });
-        if (result.count === 0) {
+        // Ambil existing untuk hapus file R2 jika ada
+        const existing = await db_1.db.expenses.findFirst({ where: { id, tenant_id: req.user?.tenant_id } });
+        if (!existing) {
             return res.status(404).json({ status: 'error', message: 'Pengeluaran tidak ditemukan.' });
         }
+        // Hapus file bukti dari R2 jika ada
+        if (existing.bukti_pengeluaran) {
+            await (0, r2Service_1.deleteFromR2)(existing.bukti_pengeluaran);
+        }
+        await db_1.db.expenses.delete({ where: { id } });
         res.json({ status: 'success', message: 'Pengeluaran dihapus' });
     }
     catch (err) {
@@ -452,7 +499,8 @@ const getPayments = async (req, res) => {
                    CASE WHEN COALESCE(p.jumlah_bayar, 0) = 0 THEN o.total_harga ELSE p.jumlah_bayar END as jumlah_bayar,
                    p.status_pembayaran, p.metode_pembayaran, 
                    COALESCE(p.tgl_pembayaran, p.konfirmasi_pada, o.tgl_order) as tgl_pembayaran,
-                   o.tracking_code, c.nama as pelanggan_nama
+                   o.tracking_code, c.nama as pelanggan_nama,
+                   p.bukti_pembayaran
             FROM payments p
             JOIN orders o ON p.order_id = o.id
             JOIN customers c ON o.customer_id = c.id
@@ -474,12 +522,41 @@ exports.getPayments = getPayments;
 const approvePayment = async (req, res) => {
     try {
         const tenantId = req.user?.tenant_id;
+        if (!tenantId)
+            return res.status(403).json({ status: 'error', message: 'Tenant required.' });
+        // [SECURITY FIX] P2: Role check — hanya admin/owner yang boleh approve pembayaran
+        // Karyawan bisa membuat pesanan, tapi konfirmasi pembayaran harus oleh level admin
+        // untuk menjaga integritas keuangan dan mencegah penyalahgunaan.
+        const role = req.user?.role || '';
+        if (role !== 'admin' && role !== 'super_admin' && role !== 'owner') {
+            return res.status(403).json({ status: 'error', message: 'Akses ditolak. Hanya admin yang bisa mengonfirmasi pembayaran.' });
+        }
+        // H-1: Validasi input
         const id = parseInt(req.body.id);
-        // Fix: also fill jumlah_bayar from order total if it was stored as 0
+        if (!id || isNaN(id)) {
+            return res.status(400).json({ status: 'error', message: 'ID pembayaran tidak valid.' });
+        }
+        // H-2: Verifikasi pembayaran ada dan milik tenant ini
+        const existing = await db_1.db.$queryRaw `
+          SELECT p.id, p.status_pembayaran, p.order_id
+          FROM payments p
+          WHERE p.id = ${id} AND p.tenant_id = ${tenantId}
+        `;
+        if (!existing || existing.length === 0) {
+            return res.status(404).json({ status: 'error', message: 'Pembayaran tidak ditemukan.' });
+        }
+        // H-3: Cegah approve ganda — hanya pending yang bisa di-approve
+        if (existing[0].status_pembayaran === 'lunas') {
+            return res.status(400).json({ status: 'error', message: 'Pembayaran sudah berstatus lunas.' });
+        }
+        const confirmingUserId = req.user?.user_id || 0;
+        // Update: set lunas + catat siapa yang mengonfirmasi (audit trail)
         await db_1.db.$executeRaw `
             UPDATE payments p SET 
               status_pembayaran = 'lunas', 
               tgl_pembayaran = NOW(),
+              konfirmasi_pada = NOW(),
+              dikonfirmasi_oleh = ${confirmingUserId},
               jumlah_bayar = CASE 
                 WHEN COALESCE(p.jumlah_bayar, 0) = 0 
                 THEN (SELECT COALESCE(o.total_harga, 0) FROM orders o WHERE o.id = p.order_id)
@@ -490,6 +567,7 @@ const approvePayment = async (req, res) => {
         res.json({ status: 'success', message: 'Pembayaran Dikonfirmasi Lunas' });
     }
     catch (err) {
+        console.error('[ApprovePayment Error]', err);
         res.status(500).json({ status: 'error', message: 'Gagal mengonfirmasi pembayaran' });
     }
 };

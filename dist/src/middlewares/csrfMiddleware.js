@@ -52,9 +52,11 @@ function verifyCsrf(req, res, next) {
     if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
         return next();
     }
-    // Skip untuk Mobile App (menggunakan header x-app-platform, bukan cookie)
+    // Skip untuk Mobile App & Web Frontend (keduanya mengirim custom header x-app-platform)
+    // Custom header memicu CORS preflight, yang hanya diizinkan untuk origin terdaftar,
+    // sehingga kebal dari serangan form POST CSRF biasa.
     const platform = req.headers['x-app-platform'];
-    if (platform === 'LarkMobile') {
+    if (platform === 'LarkMobile' || platform === 'LarkWeb') {
         return next();
     }
     const cookieToken = req.cookies?.lark_csrf;

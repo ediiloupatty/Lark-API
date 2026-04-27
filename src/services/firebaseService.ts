@@ -34,7 +34,7 @@ function initFirebase() {
       credential: admin.credential.cert(serviceAccount),
     });
     firebaseInitialized = true;
-    console.log('[Firebase] ✅ Firebase Admin SDK berhasil diinisialisasi.');
+    console.info('[Firebase] ✅ Firebase Admin SDK berhasil diinisialisasi.');
   } catch (err) {
     console.error('[Firebase] ❌ Gagal inisialisasi Firebase:', err);
   }
@@ -59,7 +59,8 @@ export async function registerDeviceToken(params: {
 
 // ── Hapus device token (saat logout) ─────────────────────────────
 export async function removeDeviceToken(token: string): Promise<void> {
-  await db.device_tokens.deleteMany({ where: { token } }).catch(() => {});
+  await db.device_tokens.deleteMany({ where: { token } })
+    .catch((e: unknown) => console.error('[Firebase] Remove device token failed:', e));
 }
 
 // ── Kirim push ke semua admin dalam 1 tenant ─────────────────────
@@ -114,7 +115,7 @@ export async function sendPushToAdmins(params: {
       await db.device_tokens.deleteMany({ where: { token: { in: invalidTokens } } });
     }
 
-    console.log(`[Firebase] Push dikirim: ${response.successCount} sukses, ${response.failureCount} gagal`);
+    console.info(`[Firebase] Push dikirim: ${response.successCount} sukses, ${response.failureCount} gagal`);
   } catch (err) {
     console.error('[Firebase] Gagal kirim push notification:', err);
   }

@@ -8,6 +8,7 @@ const db_1 = require("../config/db");
 const crypto_1 = __importDefault(require("crypto"));
 const firebaseService_1 = require("../services/firebaseService");
 const whatsappService_1 = require("../services/whatsappService");
+const r2Service_1 = require("../services/r2Service");
 function generateTrackingCode() {
     return 'ORD-' + crypto_1.default.randomBytes(3).toString('hex').toUpperCase();
 }
@@ -390,6 +391,23 @@ const updateOrderStatus = async (req, res) => {
         const { status } = req.body;
         if (!id || !status)
             return res.status(400).json({ status: 'error', message: 'ID pesanan dan status wajib diisi.' });
+        // ── Validasi: Pesanan tidak boleh "selesai" jika belum lunas ──
+        if (status === 'selesai') {
+            const [order] = await db_1.db.$queryRawUnsafe(`SELECT o.id, p.status_pembayaran
+         FROM orders o
+         LEFT JOIN payments p ON p.order_id = o.id AND p.tenant_id = o.tenant_id
+         WHERE o.id = $1 AND o.tenant_id = $2
+         ORDER BY p.created_at DESC
+         LIMIT 1`, parseInt(String(id)), tenantId);
+            if (!order)
+                return res.status(404).json({ status: 'error', message: 'Pesanan tidak ditemukan.' });
+            if (order.status_pembayaran !== 'lunas') {
+                return res.status(400).json({
+                    status: 'error',
+                    message: 'Pesanan tidak bisa diselesaikan sebelum pembayaran lunas. Silakan selesaikan pembayaran terlebih dahulu.',
+                });
+            }
+        }
         let queryUpdates = `status = $1::order_status`;
         const params = [status, id, tenantId];
         if (status === 'diproses')
@@ -447,7 +465,7 @@ const payOrder = async (req, res) => {
         if (!order_id) {
             return res.status(400).json({ status: 'error', message: 'Data tidak lengkap.' });
         }
-        const orderRes = await db_1.db.$queryRawUnsafe(`SELECT id, total_harga FROM orders WHERE id = $1 AND tenant_id = $2`, parseInt(order_id), tenantId);
+        const orderRes = await db_1.db.$queryRawUnsafe(`SELECT id, total_harga, tracking_code FROM orders WHERE id = $1 AND tenant_id = $2`, parseInt(order_id), tenantId);
         if (orderRes.length === 0) {
             return res.status(404).json({ status: 'error', message: 'Order tidak ditemukan.' });
         }
@@ -456,6 +474,19 @@ const payOrder = async (req, res) => {
             ? parseFloat(jumlah_bayar)
             : parseFloat(orderRes[0].total_harga || 0);
         const confirmingUserId = req.user?.user_id || 0;
+        // ── Upload bukti pembayaran ke R2 (opsional) ──────────────────
+        let buktiUrl = null;
+        const multerFile = req.file;
+        if (multerFile && (0, r2Service_1.isR2Configured)()) {
+            try {
+                const trackingCode = orderRes[0].tracking_code || `ORD${order_id}`;
+                buktiUrl = await (0, r2Service_1.uploadToR2)(multerFile, 'payment', tenantId, trackingCode);
+            }
+            catch (uploadErr) {
+                console.error('[PayOrder] R2 upload error (non-fatal):', uploadErr.message);
+                // Non-fatal: pembayaran tetap diproses meski upload gagal
+            }
+        }
         const updated = await db_1.db.$queryRawUnsafe(`
       UPDATE payments SET
         metode_pembayaran = $1,
@@ -463,14 +494,15 @@ const payOrder = async (req, res) => {
         status_pembayaran = 'lunas',
         tgl_pembayaran = NOW(),
         konfirmasi_pada = NOW(),
-        dikonfirmasi_oleh = $5
+        dikonfirmasi_oleh = $5,
+        bukti_pembayaran = COALESCE($6, bukti_pembayaran)
       WHERE order_id = $3 AND tenant_id = $4 RETURNING id
-    `, metodeBayar, jumlahBayar, parseInt(order_id), tenantId, confirmingUserId);
+    `, metodeBayar, jumlahBayar, parseInt(order_id), tenantId, confirmingUserId, buktiUrl);
         if (updated.length === 0) {
             await db_1.db.$queryRawUnsafe(`
-        INSERT INTO payments (tenant_id, order_id, metode_pembayaran, jumlah_bayar, status_pembayaran, tgl_pembayaran, konfirmasi_pada, dikonfirmasi_oleh)
-        VALUES ($1, $2, $3, $4, 'lunas', NOW(), NOW(), $5)
-      `, tenantId, parseInt(order_id), metodeBayar, jumlahBayar, confirmingUserId);
+        INSERT INTO payments (tenant_id, order_id, metode_pembayaran, jumlah_bayar, status_pembayaran, tgl_pembayaran, konfirmasi_pada, dikonfirmasi_oleh, bukti_pembayaran)
+        VALUES ($1, $2, $3, $4, 'lunas', NOW(), NOW(), $5, $6)
+      `, tenantId, parseInt(order_id), metodeBayar, jumlahBayar, confirmingUserId, buktiUrl);
         }
         // Update order status to selesai and bump server_version for sync
         await db_1.db.$queryRawUnsafe(`UPDATE orders SET status = 'selesai', server_version = CAST(EXTRACT(EPOCH FROM NOW()) * 1000 AS BIGINT), updated_at = NOW() WHERE id = $1 AND tenant_id = $2`, parseInt(order_id), tenantId);
@@ -478,7 +510,8 @@ const payOrder = async (req, res) => {
         const updatedOrder = await db_1.db.$queryRawUnsafe(`
       SELECT o.*, c.nama as nama_pelanggan, c.no_hp,
              p.status_pembayaran, p.tgl_pembayaran, p.jumlah_bayar,
-             p.metode_pembayaran as metode_bayar, p.konfirmasi_pada
+             p.metode_pembayaran as metode_bayar, p.konfirmasi_pada,
+             p.bukti_pembayaran
       FROM orders o
       JOIN customers c ON o.customer_id = c.id
       LEFT JOIN payments p ON o.id = p.order_id

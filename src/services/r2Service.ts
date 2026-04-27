@@ -81,7 +81,7 @@ export async function uploadToR2(
   // Return proxy URL instead of direct R2 URL (R2 dev domain blocked by Indonesian ISPs)
   const proxyUrl = `${API_PUBLIC_URL}/api/v1/public/media/${key}`;
 
-  console.log(`[R2] Uploaded: ${key} (${file.size} → ${compressed.length} bytes)`);
+  console.info(`[R2] Uploaded: ${key} (${file.size} → ${compressed.length} bytes)`);
   return proxyUrl;
 }
 
@@ -109,7 +109,7 @@ export async function deleteFromR2(publicUrl: string): Promise<void> {
       Key: key,
     }));
 
-    console.log(`[R2] Deleted: ${key}`);
+    console.info(`[R2] Deleted: ${key}`);
   } catch (err) {
     // Non-fatal: log but don't throw — deleting an old file should never block operations
     console.error('[R2] Delete error (non-fatal):', err);

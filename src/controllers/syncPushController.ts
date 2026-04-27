@@ -215,8 +215,8 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
              title: pushTitle,
              body: pushBody,
              data: { type: 'new_order', tracking_code: trackingCode },
-           }).catch(() => {});
-
+           }).catch((e: unknown) => console.error('[Sync Push] Push notification failed:', e));
+           
            db.users.findMany({
              where: { tenant_id: tenantId, role: { in: ['admin', 'super_admin', 'owner'] as any }, is_active: true, deleted_at: null },
              select: { id: true },
@@ -227,9 +227,9 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
                  userId: admin.id,
                  tipe: 'new_order',
                  pesan: pushBody,
-               }).catch(() => {});
+               }).catch((e: unknown) => console.error('[Sync Push] Save notification failed:', e));
              }
-           }).catch(() => {});
+           }).catch((e: unknown) => console.error('[Sync Push] Admin lookup failed:', e));
          }
        }
      } catch (notifErr) {
