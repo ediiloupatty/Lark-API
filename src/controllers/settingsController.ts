@@ -24,6 +24,16 @@ export const getSettings = async (req: AuthRequest, res: Response) => {
 export const updateSettings = async (req: AuthRequest, res: Response) => {
   try {
     const tenantId = req.user?.tenant_id;
+    if (!tenantId) return res.status(403).json({ status: 'error', message: 'Tenant required.' });
+
+    // [SECURITY FIX] P1: Role check — hanya admin/owner yang boleh ubah pengaturan toko
+    // Karyawan TIDAK boleh mengubah setting (WhatsApp config, nota, jam operasional, dll)
+    // karena ini berdampak langsung ke operasional bisnis seluruh tenant.
+    const role = req.user?.role || '';
+    if (role !== 'admin' && role !== 'super_admin' && role !== 'owner') {
+      return res.status(403).json({ status: 'error', message: 'Akses ditolak. Hanya admin yang bisa mengubah pengaturan.' });
+    }
+
     const updates = req.body;
 
     // Fix B-2: Whitelist key yang diizinkan — cegah injection key sembarang
@@ -32,17 +42,20 @@ export const updateSettings = async (req: AuthRequest, res: Response) => {
       'jam_operasional', 'global_staff_permissions', 'printer_config',
     ]);
 
+    let updatedCount = 0;
     for (const [key, value] of Object.entries(updates)) {
       if (!ALLOWED_SETTING_KEYS.has(key)) continue;
       await db.tenant_settings.upsert({
-        where: { tenant_id_setting_key: { tenant_id: tenantId!, setting_key: key } },
+        where: { tenant_id_setting_key: { tenant_id: tenantId, setting_key: key } },
         update: { setting_value: value as any, updated_at: new Date() },
-        create: { tenant_id: tenantId!, setting_key: key, setting_value: value as any }
+        create: { tenant_id: tenantId, setting_key: key, setting_value: value as any }
       });
+      updatedCount++;
     }
 
-    res.json({ status: 'success', message: 'Pengaturan berhasil disimpan!' });
-  } catch (err) {
+    res.json({ status: 'success', message: `Pengaturan berhasil disimpan! (${updatedCount} item diperbarui)` });
+  } catch (err: any) {
+    console.error('[UpdateSettings Error]', err);
     res.status(500).json({ status: 'error', message: 'Gagal menyimpan pengaturan' });
   }
 };
