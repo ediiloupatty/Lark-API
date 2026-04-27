@@ -1,5 +1,21 @@
 /**
- * tests/orders.test.ts — Pesanan & Pembayaran (12 test cases)
+ * @module orders.test
+ * @description Integration tests untuk OrderController — CRUD Pesanan & Pembayaran
+ *
+ * Scope:
+ *  - createOrder: input validation, IDOR customer check, idempotency via client_id
+ *  - getOrders: admin vs staff outlet filtering, tenant isolation
+ *  - updateOrderStatus: state machine transitions, missing ID rejection
+ *  - payOrder: payment creation, enum sanitization (invalid metode_bayar → fallback)
+ *  - deleteOrder: admin soft-delete (status → dibatalkan)
+ *
+ * Dependencies (real — integration test):
+ *  - PostgreSQL (test database via seedTestData)
+ *  - Express app instance
+ *  - Order state machine (VALID_TRANSITIONS)
+ *
+ * @see rules-test.md Section 6.1 untuk mandatory test scenarios
+ * @see BUG-8 (state machine enforcement) dari audit v2
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';

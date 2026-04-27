@@ -1,5 +1,17 @@
 /**
- * tests/settings.test.ts — Pengaturan (4 test cases)
+ * @module settings.test
+ * @description Integration tests untuk SettingsController — Tenant Settings & Subscriptions
+ *
+ * Scope:
+ *  - getSettings: tenant-scoped settings retrieval
+ *  - updateSettings: key whitelist enforcement (invalid keys silently ignored)
+ *  - getSubscriptions: current plan info
+ *
+ * Dependencies (real — integration test):
+ *  - PostgreSQL (test database via seedTestData)
+ *  - Express app instance
+ *
+ * @see rules-test.md Section 6.1 untuk mandatory test scenarios
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';

@@ -1,5 +1,17 @@
 /**
- * tests/sync.test.ts — Sinkronisasi Pull + Push (5 test cases)
+ * @module sync.test
+ * @description Integration tests untuk SyncController — Pull & Push Offline-First Sync
+ *
+ * Scope:
+ *  - pullChanges: initial sync (since_version=0), incremental sync (delta only)
+ *  - pushChanges: single order create, batch limit (max 50), IDOR customer handling
+ *
+ * Dependencies (real — integration test):
+ *  - PostgreSQL (test database via seedTestData)
+ *  - Express app instance
+ *  - server_version tracking for delta sync
+ *
+ * @see rules-test.md Section 6.1 dan 6.2 untuk mandatory test scenarios
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';

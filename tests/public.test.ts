@@ -1,5 +1,17 @@
 /**
- * tests/public.test.ts — Public Endpoints (3 test cases)
+ * @module public.test
+ * @description Integration tests untuk PublicController — Unauthenticated Endpoints
+ *
+ * Scope:
+ *  - landingStats: public statistics (total orders, tenants, productivity)
+ *  - blogList: public article listing (graceful handling if table missing)
+ *  - blogBySlug: slug regex validation (uppercase/special chars rejected)
+ *
+ * Dependencies (real — integration test):
+ *  - PostgreSQL (test database — no seed needed for public endpoints)
+ *  - Express app instance
+ *
+ * @see rules-test.md Section 6.1 untuk mandatory test scenarios
  */
 import { describe, it, expect } from 'vitest';
 import request from 'supertest';

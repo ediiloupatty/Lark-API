@@ -1,5 +1,18 @@
 /**
- * tests/outlets.test.ts — Outlet (7 test cases)
+ * @module outlets.test
+ * @description Integration tests untuk OutletController — CRUD Outlet/Cabang
+ *
+ * Scope:
+ *  - getOutlets: admin sees all, staff filtered to own outlet
+ *  - addOutlet: RBAC (admin-only), tenant scoping
+ *  - updateOutlet: field update with ownership check
+ *  - deleteOutlet: RBAC (admin-only), soft delete (is_active = false)
+ *
+ * Dependencies (real — integration test):
+ *  - PostgreSQL (test database via seedTestData)
+ *  - Express app instance
+ *
+ * @see rules-test.md Section 6.1 untuk mandatory test scenarios
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';

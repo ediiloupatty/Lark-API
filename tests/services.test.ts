@@ -1,5 +1,18 @@
 /**
- * tests/services.test.ts — Layanan (8 test cases)
+ * @module services.test
+ * @description Integration tests untuk ServiceController — CRUD Layanan Laundry
+ *
+ * Scope:
+ *  - getServices: tenant isolation, staff filtered by outlet
+ *  - addService: input validation (name + price > 0), IDOR outlet cross-tenant check
+ *  - updateService: field update with tenant + outlet scoping
+ *  - deleteService: soft delete (is_active = false), not-found handling
+ *
+ * Dependencies (real — integration test):
+ *  - PostgreSQL (test database via seedTestData)
+ *  - Express app instance
+ *
+ * @see rules-test.md Section 6.1 untuk mandatory test scenarios
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
