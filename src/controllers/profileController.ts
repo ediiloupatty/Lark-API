@@ -124,7 +124,9 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
     });
 
   } catch (err) {
-    console.error('[UpdateProfile]', err);
+    // Log body tanpa field sensitif untuk memudahkan debugging 500 error
+    const { password, ...safeBody } = req.body || {};
+    console.error('[UpdateProfile]', err, '| body:', JSON.stringify(safeBody));
     res.status(500).json({ status: 'error', message: 'Gagal update profil' });
   }
 };
