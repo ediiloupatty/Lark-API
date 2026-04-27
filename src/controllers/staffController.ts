@@ -137,14 +137,21 @@ export const updateStaff = async (req: AuthRequest, res: Response) => {
       const verifyOutlet = await db.outlets.findFirst({ where: { id: finalOutletId, tenant_id: tenantId } });
       if (!verifyOutlet) return res.status(403).json({ status: 'error', message: 'Outlet tidak valid atau tidak dimiliki tenant ini.' });
     }
+    // BUG-21 FIX: Include role in update (frontend sends role but backend was ignoring it)
+    const finalRole = req.body.role || 'karyawan';
+    const allowedRoles = ['karyawan', 'admin'];
+    if (!allowedRoles.includes(finalRole)) {
+      return res.status(400).json({ status: 'error', message: 'Role tidak valid.' });
+    }
 
-    let query = `UPDATE users SET nama = $1, username = $2, no_hp = $3, alamat = $4, outlet_id = $5`;
-    const params: any[] = [nama, finalUsername, no_hp || '', alamat || '', finalOutletId];
-    let idx = 6;
+    let query = `UPDATE users SET nama = $1, username = $2, no_hp = $3, alamat = $4, outlet_id = $5, role = $6`;
+    const params: any[] = [nama, finalUsername, no_hp || '', alamat || '', finalOutletId, finalRole];
+    let idx = 7;
 
     if (password && password.trim() !== '') {
        const hashedPassword = await bcrypt.hash(password.trim(), 10);
-       query += `, password = $${idx++}`;
+       // BUG-20 FIX: Bump token_version when password changes to invalidate old tokens
+       query += `, password = $${idx++}, token_version = COALESCE(token_version, 0) + 1`;
        params.push(hashedPassword);
     }
 
