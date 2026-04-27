@@ -125,6 +125,10 @@ app.get('/api/v1/public/blog', listBlogArticles);
 app.post('/api/v1/public/blog/generate', triggerGenerate);
 app.get('/api/v1/public/blog/:slug', getBlogArticle);
 
+// Media proxy — serves R2 images through our domain to bypass ISP SSL interception
+import { proxyMedia } from './controllers/mediaProxyController';
+app.get('/api/v1/public/media/*', proxyMedia);
+
 // Expense alias routes
 app.get('/api/v1/expenses', authenticateToken, getExpenses);
 app.post('/api/v1/expenses', authenticateToken, addExpense);

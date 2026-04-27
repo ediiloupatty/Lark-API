@@ -7,6 +7,7 @@ const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY || '';
 const R2_ENDPOINT          = process.env.R2_ENDPOINT || '';
 const R2_BUCKET            = process.env.R2_BUCKET || 'lark-uploads';
 const R2_PUBLIC_URL        = process.env.R2_PUBLIC_URL || '';
+const API_PUBLIC_URL       = process.env.API_PUBLIC_URL || 'https://api.larklaundry.com';
 
 const s3 = new S3Client({
   region: 'auto',
@@ -75,13 +76,11 @@ export async function uploadToR2(
     ContentType: 'image/webp',
   }));
 
-  // Return public URL
-  const publicUrl = R2_PUBLIC_URL.endsWith('/')
-    ? `${R2_PUBLIC_URL}${key}`
-    : `${R2_PUBLIC_URL}/${key}`;
+  // Return proxy URL instead of direct R2 URL (R2 dev domain blocked by Indonesian ISPs)
+  const proxyUrl = `${API_PUBLIC_URL}/api/v1/public/media/${key}`;
 
   console.log(`[R2] Uploaded: ${key} (${file.size} → ${compressed.length} bytes)`);
-  return publicUrl;
+  return proxyUrl;
 }
 
 // ── Delete from R2 ────────────────────────────────────────────────
@@ -89,8 +88,18 @@ export async function deleteFromR2(publicUrl: string): Promise<void> {
   if (!publicUrl || !R2_PUBLIC_URL) return;
 
   try {
-    // Extract key from public URL
-    const key = publicUrl.replace(R2_PUBLIC_URL, '').replace(/^\//, '');
+    // Extract key from either proxy URL or direct R2 URL
+    let key = '';
+    const proxyPrefix = '/api/v1/public/media/';
+    if (publicUrl.includes(proxyPrefix)) {
+      key = publicUrl.substring(publicUrl.indexOf(proxyPrefix) + proxyPrefix.length);
+    } else if (R2_PUBLIC_URL && publicUrl.startsWith(R2_PUBLIC_URL)) {
+      key = publicUrl.replace(R2_PUBLIC_URL, '').replace(/^\//, '');
+    } else {
+      // Try to extract path after last known pattern
+      const match = publicUrl.match(/(payments|expenses)\/tenant_\d+\/.+$/);
+      key = match ? match[0] : '';
+    }
     if (!key) return;
 
     await s3.send(new DeleteObjectCommand({
