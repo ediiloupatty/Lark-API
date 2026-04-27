@@ -450,6 +450,21 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
 
     if (!id || !status) return res.status(400).json({ status: 'error', message: 'ID pesanan dan status wajib diisi.' });
 
+    // ── Validasi: Pesanan tidak boleh "selesai" jika belum lunas ──
+    if (status === 'selesai') {
+      const [order] = await db.$queryRawUnsafe<any[]>(
+        `SELECT status_pembayaran FROM orders WHERE id = $1 AND tenant_id = $2`,
+        parseInt(String(id)), tenantId
+      );
+      if (!order) return res.status(404).json({ status: 'error', message: 'Pesanan tidak ditemukan.' });
+      if (order.status_pembayaran !== 'lunas') {
+        return res.status(400).json({
+          status: 'error',
+          message: 'Pesanan tidak bisa diselesaikan sebelum pembayaran lunas. Silakan selesaikan pembayaran terlebih dahulu.',
+        });
+      }
+    }
+
     let queryUpdates = `status = $1::order_status`;
     const params: any[] = [status, id, tenantId];
 
