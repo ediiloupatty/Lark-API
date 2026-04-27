@@ -1,9 +1,24 @@
 /**
- * tests/auth.test.ts — Autentikasi (11 test cases)
+ * @module auth.test
+ * @description Integration tests untuk AuthController — Login, Register, Logout, Staff Login
+ *
+ * Scope:
+ *  - loginAdmin: credential validation, role-based web/mobile gate, inactive account block
+ *  - registerAdmin: input validation (password length, mismatch, duplicate), tenant seeding
+ *  - logoutAdmin: cookie clear, token_version increment
+ *  - loginStaff: staff_code lookup, mobile-only access
+ *
+ * Dependencies (real — integration test):
+ *  - PostgreSQL (test database via seedTestData)
+ *  - Express app instance
+ *  - JWT signing (process.env.JWT_SECRET)
  *
  * CATATAN: Endpoint /auth/register memiliki rate limiter (3 per IP/jam).
+ * Rate limiter di-bypass otomatis saat NODE_ENV=test.
  * Test case register diurutkan agar validasi input (yang gagal cepat)
  * dijalankan lebih dulu sebelum register sukses.
+ *
+ * @see rules-test.md Section 6.1 untuk mandatory test scenarios
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';

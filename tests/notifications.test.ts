@@ -1,5 +1,18 @@
 /**
- * tests/notifications.test.ts — Notifikasi (5 test cases)
+ * @module notifications.test
+ * @description Integration tests untuk NotificationController — Device Token & In-App Notifications
+ *
+ * Scope:
+ *  - registerDeviceToken: FCM token registration with platform info
+ *  - getNotifications: user-scoped notification list with unread count
+ *  - markAllAsRead: bulk read-status update
+ *  - unregisterDeviceToken: cleanup on logout/uninstall
+ *
+ * Dependencies (real — integration test):
+ *  - PostgreSQL (test database via seedTestData)
+ *  - Express app instance
+ *
+ * @see rules-test.md Section 6.1 untuk mandatory test scenarios
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';

@@ -1,5 +1,18 @@
 /**
- * tests/customers.test.ts — Pelanggan (8 test cases)
+ * @module customers.test
+ * @description Integration tests untuk CustomerController — CRUD Pelanggan
+ *
+ * Scope:
+ *  - getCustomers: tenant isolation, search filter
+ *  - addCustomer: input validation (nama required), phone uniqueness within tenant
+ *  - updateCustomer: field update with tenant scoping
+ *  - deleteCustomer: RBAC (admin-only), soft delete
+ *
+ * Dependencies (real — integration test):
+ *  - PostgreSQL (test database via seedTestData)
+ *  - Express app instance
+ *
+ * @see rules-test.md Section 6.1 untuk mandatory test scenarios
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';

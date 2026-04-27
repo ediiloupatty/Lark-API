@@ -1,5 +1,18 @@
 /**
- * tests/packages.test.ts — Paket Durasi (7 test cases)
+ * @module packages.test
+ * @description Integration tests untuk PackageController — CRUD Paket Durasi Laundry
+ *
+ * Scope:
+ *  - getPackages: tenant-scoped list
+ *  - addPackage: input validation (durasi > 0), IDOR outlet check
+ *  - updatePackage: field update with tenant scoping
+ *  - deletePackage: soft delete, not-found handling
+ *
+ * Dependencies (real — integration test):
+ *  - PostgreSQL (test database via seedTestData)
+ *  - Express app instance
+ *
+ * @see rules-test.md Section 6.1 untuk mandatory test scenarios
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';

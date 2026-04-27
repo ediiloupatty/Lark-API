@@ -1,5 +1,22 @@
 /**
- * tests/finance.test.ts — Keuangan: Expenses, Reports, Payments (10 test cases)
+ * @module finance.test
+ * @description Integration tests untuk FinanceController — Expenses, Reports, Payments
+ *
+ * Scope:
+ *  - getExpenses: tenant isolation, month filter
+ *  - addExpense: input validation, IDOR outlet check, R2 upload
+ *  - updateExpense: ownership verification, field update
+ *  - deleteExpense: RBAC (admin-only), R2 cleanup
+ *  - getReports: summary stats, date range, chart data, top services/customers/staff
+ *  - getPayments: tenant-scoped payment list
+ *  - approvePayment: RBAC (admin-only), idempotency (already lunas)
+ *
+ * Dependencies (real — integration test):
+ *  - PostgreSQL (test database via seedTestData)
+ *  - Express app instance
+ *
+ * @see rules-test.md Section 6.1 untuk mandatory test scenarios
+ * @see BUG-31 (SQL injection fix) dari audit v9
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';

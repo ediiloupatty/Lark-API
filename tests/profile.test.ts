@@ -1,8 +1,22 @@
 /**
- * tests/profile.test.ts — Profil (5 test cases)
+ * @module profile.test
+ * @description Integration tests untuk ProfileController — User Profile & Password Change
+ *
+ * Scope:
+ *  - getProfile: user info retrieval with tenant data
+ *  - updateProfile: field update, username uniqueness check
+ *  - changePassword: old password verification, token_version increment on success
+ *
+ * Dependencies (real — integration test):
+ *  - PostgreSQL (test database via seedTestData)
+ *  - Express app instance
+ *  - bcrypt (password restore in cleanup)
  *
  * CATATAN: Test change-password yang berhasil akan menaikkan token_version,
- * membuat token lama invalid. Test diurutkan dengan hati-hati.
+ * membuat token lama invalid. Test diurutkan dengan hati-hati agar
+ * change-password sukses menjadi test TERAKHIR.
+ *
+ * @see rules-test.md Section 5.2 — profileController requires 100% branch coverage
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';

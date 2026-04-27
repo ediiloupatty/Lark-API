@@ -1,5 +1,21 @@
 /**
- * tests/staff.test.ts — Karyawan & Permissions (10 test cases)
+ * @module staff.test
+ * @description Integration tests untuk StaffController — CRUD Karyawan & Permissions
+ *
+ * Scope:
+ *  - getStaff: RBAC (admin-only list), tenant isolation
+ *  - addStaff: staff_code uniqueness, outlet assignment
+ *  - updateStaff: field update with admin check
+ *  - toggleStaffStatus: activate/deactivate staff account
+ *  - deleteStaff: soft delete (deleted_at timestamp)
+ *  - globalPermissions: get/set tenant-wide permission defaults
+ *  - updatePermissions: per-staff permission override
+ *
+ * Dependencies (real — integration test):
+ *  - PostgreSQL (test database via seedTestData)
+ *  - Express app instance
+ *
+ * @see rules-test.md Section 6.1 untuk mandatory test scenarios
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';

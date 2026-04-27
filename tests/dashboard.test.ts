@@ -1,5 +1,19 @@
 /**
- * tests/dashboard.test.ts — Dashboard (4 test cases)
+ * @module dashboard.test
+ * @description Integration tests untuk DashboardController — Sync Dashboard
+ *
+ * Scope:
+ *  - getDashboard: admin stats (pendapatan bulanan), staff stats (diproses count)
+ *  - outlet filter: query param ?oid filters dashboard data to specific outlet
+ *  - security: request without valid tenant_id is rejected
+ *
+ * Dependencies (real — integration test):
+ *  - PostgreSQL (test database via seedTestData)
+ *  - Express app instance
+ *  - JWT token generation (generateToken for security test)
+ *
+ * @see rules-test.md Section 6.1 untuk mandatory test scenarios
+ * @see BUG-30 (SQL injection fix) dari audit v8
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
