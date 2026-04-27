@@ -13,10 +13,21 @@ export const getExpenses = async (req: AuthRequest, res: Response) => {
     if (kategori) where.kategori = kategori as string;
     if (outlet_id) where.outlet_id = parseInt(outlet_id as string);
 
+    // Filter berdasarkan bulan (format: "YYYY-MM")
+    if (bulan && typeof bulan === 'string' && /^\d{4}-\d{2}$/.test(bulan)) {
+      const [year, month] = bulan.split('-').map(Number);
+      const startDate = new Date(year, month - 1, 1);
+      const endDate = new Date(year, month, 1); // 1st of next month
+      where.tanggal = {
+        gte: startDate,
+        lt: endDate,
+      };
+    }
+
     const expenses = await db.expenses.findMany({
       where,
       orderBy: { tanggal: 'desc' },
-      take: 100
+      take: 500, // Raised limit — we now have month filter so results are bounded
     });
 
     const formatted = expenses.map(e => ({
