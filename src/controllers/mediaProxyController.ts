@@ -1,4 +1,6 @@
 import { Request, Response } from 'express';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { Readable } from 'stream';
 
 /**
  * Media Proxy Controller
@@ -6,14 +8,32 @@ import { Request, Response } from 'express';
  * Proxies images from Cloudflare R2 through our own API domain
  * to bypass ISP SSL interception (e.g., Telkomsel's "internetbaik").
  * 
- * The R2 dev URL (pub-xxx.r2.dev) is blocked/intercepted by Indonesian ISPs,
- * causing ERR_CERT_AUTHORITY_INVALID in browsers. By proxying through
- * api.larklaundry.com (which has valid SSL), images load correctly.
+ * Uses S3 API (private) to fetch from R2, NOT the public URL.
+ * This ensures the proxy works even when R2 public URL is blocked.
  * 
- * Route: GET /api/v1/public/media/:path(*)
+ * Route: GET /api/v1/public/media/*path
  */
 
-const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || '';
+const R2_ACCESS_KEY_ID     = process.env.R2_ACCESS_KEY_ID || '';
+const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY || '';
+const R2_ENDPOINT          = process.env.R2_ENDPOINT || '';
+const R2_BUCKET            = process.env.R2_BUCKET || 'lark-uploads';
+
+let s3: S3Client | null = null;
+
+function getS3Client(): S3Client {
+  if (!s3) {
+    s3 = new S3Client({
+      region: 'auto',
+      endpoint: R2_ENDPOINT,
+      credentials: {
+        accessKeyId: R2_ACCESS_KEY_ID,
+        secretAccessKey: R2_SECRET_ACCESS_KEY,
+      },
+    });
+  }
+  return s3;
+}
 
 export const proxyMedia = async (req: Request, res: Response) => {
   try {
@@ -24,59 +44,54 @@ export const proxyMedia = async (req: Request, res: Response) => {
     }
 
     // Sanitize: prevent directory traversal
-    if (mediaPath.includes('..') || mediaPath.includes('//')) {
+    if (mediaPath.includes('..')) {
       return res.status(400).json({ status: 'error', message: 'Path tidak valid.' });
     }
 
-    if (!R2_PUBLIC_URL) {
+    if (!R2_ACCESS_KEY_ID || !R2_ENDPOINT) {
       return res.status(503).json({ status: 'error', message: 'Storage tidak dikonfigurasi.' });
     }
 
-    // Build the actual R2 URL
-    const r2Url = R2_PUBLIC_URL.endsWith('/')
-      ? `${R2_PUBLIC_URL}${mediaPath}`
-      : `${R2_PUBLIC_URL}/${mediaPath}`;
+    // Fetch directly from R2 via S3 API (private, not public URL)
+    const client = getS3Client();
+    const command = new GetObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: mediaPath,
+    });
 
-    // Fetch from R2
-    const r2Response = await fetch(r2Url);
+    const r2Response = await client.send(command);
 
-    if (!r2Response.ok) {
-      return res.status(r2Response.status).json({
-        status: 'error',
-        message: `Media tidak ditemukan (${r2Response.status}).`,
-      });
+    if (!r2Response.Body) {
+      return res.status(404).json({ status: 'error', message: 'Media tidak ditemukan.' });
     }
 
-    // Forward content type and cache headers
-    const contentType = r2Response.headers.get('content-type') || 'application/octet-stream';
-    const contentLength = r2Response.headers.get('content-length');
-
+    // Set response headers
+    const contentType = r2Response.ContentType || 'application/octet-stream';
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); // 1 year cache
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    if (contentLength) res.setHeader('Content-Length', contentLength);
+    if (r2Response.ContentLength) {
+      res.setHeader('Content-Length', r2Response.ContentLength);
+    }
 
-    // Stream the response body
-    if (r2Response.body) {
-      const reader = r2Response.body.getReader();
-      const pump = async () => {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          res.write(Buffer.from(value));
-        }
-        res.end();
-      };
-      await pump();
+    // Stream the S3 response body to the client
+    if (r2Response.Body instanceof Readable) {
+      r2Response.Body.pipe(res);
     } else {
-      // Fallback: buffer entire response
-      const buffer = Buffer.from(await r2Response.arrayBuffer());
-      res.send(buffer);
+      // Fallback: convert to buffer
+      const chunks: Uint8Array[] = [];
+      // @ts-ignore - Body can be AsyncIterable
+      for await (const chunk of r2Response.Body) {
+        chunks.push(chunk);
+      }
+      res.send(Buffer.concat(chunks));
     }
   } catch (err: any) {
-    console.error('[MediaProxy] Error:', err.message);
+    console.error('[MediaProxy] Error:', err.name, err.message);
     if (!res.headersSent) {
-      res.status(502).json({ status: 'error', message: 'Gagal memuat media.' });
+      const status = err.name === 'NoSuchKey' ? 404 : 502;
+      const message = err.name === 'NoSuchKey' ? 'Media tidak ditemukan.' : 'Gagal memuat media.';
+      res.status(status).json({ status: 'error', message });
     }
   }
 };
