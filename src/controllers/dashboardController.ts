@@ -159,7 +159,7 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
     const today_revenue = Number(todayRevRes[0]?.total || 0);
 
     let status_counts: any = {};
-    const statuses = ['menunggu_konfirmasi', 'diproses', 'siap_diantar', 'selesai', 'dibatalkan'];
+    const statuses = ['menunggu_konfirmasi', 'diproses', 'siap_diambil', 'siap_diantar', 'selesai', 'dibatalkan'];
     for (const s of statuses) {
       const scRes = await db.$queryRawUnsafe<any[]>(`SELECT COUNT(*) as count FROM orders WHERE tenant_id = $1 AND status = $2::order_status ${outletCondRaw}`, tenantId, s);
       status_counts[s] = Number(scRes[0]?.count || 0);
