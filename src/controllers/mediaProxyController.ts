@@ -38,7 +38,9 @@ function getS3Client(): S3Client {
 export const proxyMedia = async (req: Request, res: Response) => {
   try {
     // Extract the full path after /media/
-    const mediaPath = req.params.path || req.params[0];
+    // Express 5 *path wildcard returns an array of path segments
+    const rawPath = req.params.path || req.params[0];
+    const mediaPath = Array.isArray(rawPath) ? rawPath.join('/') : (rawPath || '');
     if (!mediaPath) {
       return res.status(400).json({ status: 'error', message: 'Path media tidak valid.' });
     }
