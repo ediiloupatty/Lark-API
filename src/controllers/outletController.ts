@@ -12,7 +12,7 @@ export const getOutlets = async (req: AuthRequest, res: Response) => {
     const isAdmin = role === 'admin' || role === 'super_admin' || role === 'owner';
     const staffOutletId = req.user?.outlet_id || null;
 
-    let query = `SELECT id, nama, alamat, phone, jam_buka, jam_tutup FROM outlets WHERE tenant_id = $1`;
+    let query = `SELECT id, nama, alamat, phone, jam_buka, jam_tutup FROM outlets WHERE tenant_id = $1 AND (is_active = true OR is_active IS NULL)`;
     const params: any[] = [tenantId];
 
     if (!isAdmin && staffOutletId) {

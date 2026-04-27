@@ -80,9 +80,10 @@ export async function markOneRead(req: AuthRequest, res: Response): Promise<void
   if (!user) { res.status(401).json({ success: false, message: 'Unauthorized' }); return; }
 
   const id = parseInt(req.params.id as string);
+  if (isNaN(id)) { res.status(400).json({ success: false, message: 'ID tidak valid' }); return; }
   
   await db.notifications.updateMany({
-    where: { id, user_id: user.user_id },
+    where: { id, user_id: user.user_id, tenant_id: user.tenant_id as number },
     data: { is_read: true },
   });
 
