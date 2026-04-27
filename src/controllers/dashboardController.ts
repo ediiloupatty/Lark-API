@@ -18,9 +18,20 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
       if (qOid > 0) outletId = qOid;
     }
 
-    // Build outlet condition snippet for raw queries
-    const outletCondRaw = outletId ? `AND outlet_id = ${outletId}` : '';
-    const outletCondRawOrders = outletId ? `AND o.outlet_id = ${outletId}` : '';
+    // BUG-30 FIX: Use parameterized queries instead of string interpolation
+    // Previously outletId was interpolated directly into SQL strings (`${outletId}`)
+    // which violates OWASP prepared statement rules even though parseInt provided mitigation.
+    // Now all queries use proper $N parameters.
+
+    // Helper to build parameterized outlet condition
+    // Returns { clause, params } where clause is like "AND outlet_id = $2" and params is [outletId]
+    const buildOutletCond = (pIdx: number, alias = '') => {
+      const col = alias ? `${alias}.outlet_id` : 'outlet_id';
+      if (outletId) {
+        return { clause: `AND ${col} = $${pIdx}`, params: [outletId], nextIdx: pIdx + 1 };
+      }
+      return { clause: '', params: [] as any[], nextIdx: pIdx };
+    };
 
     // Fetch outlets list for the selector (only for admins)
     let available_outlets: any[] = [];
@@ -30,25 +41,28 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
 
     // 1. Common Statistics
     // Today's Orders
+    const oc1 = buildOutletCond(2);
     const todayRes = await db.$queryRawUnsafe<any[]>(
-      `SELECT COUNT(*) as count FROM orders WHERE tenant_id = $1 AND date(tgl_order) = CURRENT_DATE ${outletCondRaw}`,
-      tenantId
+      `SELECT COUNT(*) as count FROM orders WHERE tenant_id = $1 AND date(tgl_order) = CURRENT_DATE ${oc1.clause}`,
+      tenantId, ...oc1.params
     );
     const today_count = Number(todayRes[0]?.count || 0);
 
     // Pending Orders
+    const oc2 = buildOutletCond(2);
     const pendingRes = await db.$queryRawUnsafe<any[]>(
-      `SELECT COUNT(*) as count FROM orders WHERE tenant_id = $1 AND status = 'menunggu_konfirmasi' ${outletCondRaw}`,
-      tenantId
+      `SELECT COUNT(*) as count FROM orders WHERE tenant_id = $1 AND status = 'menunggu_konfirmasi' ${oc2.clause}`,
+      tenantId, ...oc2.params
     );
     const pending_count = Number(pendingRes[0]?.count || 0);
 
     // 2. Role-Specific Data
     let role_stats: any = {};
     if (isAdmin) {
+      const oc3 = buildOutletCond(2);
       const incomeRes = await db.$queryRawUnsafe<any[]>(
-        `SELECT SUM(total_harga) as total FROM orders WHERE tenant_id = $1 AND date_trunc('month', tgl_order) = date_trunc('month', CURRENT_DATE) AND status != 'dibatalkan' ${outletCondRaw}`,
-        tenantId
+        `SELECT SUM(total_harga) as total FROM orders WHERE tenant_id = $1 AND date_trunc('month', tgl_order) = date_trunc('month', CURRENT_DATE) AND status != 'dibatalkan' ${oc3.clause}`,
+        tenantId, ...oc3.params
       );
       const monthly_income = Number(incomeRes[0]?.total || 0);
       role_stats = {
@@ -57,9 +71,10 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
         color: '0xFF10B981'
       };
     } else {
+      const oc3 = buildOutletCond(2);
       const activeRes = await db.$queryRawUnsafe<any[]>(
-        `SELECT COUNT(*) as count FROM orders WHERE tenant_id = $1 AND status IN ('diproses') ${outletCondRaw}`,
-        tenantId
+        `SELECT COUNT(*) as count FROM orders WHERE tenant_id = $1 AND status IN ('diproses') ${oc3.clause}`,
+        tenantId, ...oc3.params
       );
       role_stats = {
         title: 'Sedang Diproses',
@@ -69,20 +84,22 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
     }
 
     // Ready to pickup
+    const oc4 = buildOutletCond(2);
     const readyRes = await db.$queryRawUnsafe<any[]>(
-      `SELECT COUNT(*) as count FROM orders WHERE tenant_id = $1 AND status IN ('siap_diambil', 'siap_diantar') ${outletCondRaw}`,
-      tenantId
+      `SELECT COUNT(*) as count FROM orders WHERE tenant_id = $1 AND status IN ('siap_diambil', 'siap_diantar') ${oc4.clause}`,
+      tenantId, ...oc4.params
     );
     const ready_count = Number(readyRes[0]?.count || 0);
 
     // 3. Revenue Chart Data (Last 7 Days)
+    const oc5 = buildOutletCond(2);
     const rawChartData = await db.$queryRawUnsafe<any[]>(`
       SELECT date(tgl_order) as order_date, SUM(total_harga) as income 
       FROM orders 
-      WHERE tenant_id = $1 AND tgl_order >= CURRENT_DATE - INTERVAL '7 days' AND status != 'dibatalkan' ${outletCondRaw}
+      WHERE tenant_id = $1 AND tgl_order >= CURRENT_DATE - INTERVAL '7 days' AND status != 'dibatalkan' ${oc5.clause}
       GROUP BY order_date
       ORDER BY order_date ASC
-    `, tenantId);
+    `, tenantId, ...oc5.params);
 
     const chart_data: any[] = [];
     for (let i = 6; i >= 0; i--) {
@@ -108,6 +125,7 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
     }
 
     // 4. Recent Orders — include all fields required by OrderDao.cacheFromRemote()
+    const oc6 = buildOutletCond(2, 'o');
     const recentOrdersRaw = await db.$queryRawUnsafe<any[]>(`
       SELECT o.id, o.client_id, o.server_version, o.tracking_code,
              o.tgl_order, o.updated_at,
@@ -120,10 +138,10 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
       FROM orders o 
       JOIN customers c ON o.customer_id = c.id
       LEFT JOIN outlets ot ON o.outlet_id = ot.id
-      WHERE o.tenant_id = $1 ${outletCondRawOrders}
+      WHERE o.tenant_id = $1 ${oc6.clause}
       ORDER BY o.tgl_order DESC 
       LIMIT 20
-    `, tenantId);
+    `, tenantId, ...oc6.params);
 
     const formatted_orders = recentOrdersRaw.map((o: any) => ({
       id: o.tracking_code || ('ORD-' + o.id),
@@ -139,29 +157,35 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
     const totCustRes = await db.$queryRawUnsafe<any[]>(`SELECT COUNT(*) as count FROM customers WHERE tenant_id = $1`, tenantId);
     const total_customers = Number(totCustRes[0]?.count || 0);
 
-    const totOrdRes = await db.$queryRawUnsafe<any[]>(`SELECT COUNT(*) as count FROM orders WHERE tenant_id = $1 ${outletCondRaw}`, tenantId);
+    const oc7 = buildOutletCond(2);
+    const totOrdRes = await db.$queryRawUnsafe<any[]>(`SELECT COUNT(*) as count FROM orders WHERE tenant_id = $1 ${oc7.clause}`, tenantId, ...oc7.params);
     const total_orders_count = Number(totOrdRes[0]?.count || 0);
 
-    const selesaiRes = await db.$queryRawUnsafe<any[]>(`SELECT COUNT(*) as count FROM orders WHERE tenant_id = $1 AND status = 'selesai' ${outletCondRaw}`, tenantId);
+    const oc8 = buildOutletCond(2);
+    const selesaiRes = await db.$queryRawUnsafe<any[]>(`SELECT COUNT(*) as count FROM orders WHERE tenant_id = $1 AND status = 'selesai' ${oc8.clause}`, tenantId, ...oc8.params);
     const selesai_orders_count = Number(selesaiRes[0]?.count || 0);
 
-    const totRevRes = await db.$queryRawUnsafe<any[]>(`SELECT SUM(total_harga) as total FROM orders WHERE tenant_id = $1 AND status = 'selesai' ${outletCondRaw}`, tenantId);
+    const oc9 = buildOutletCond(2);
+    const totRevRes = await db.$queryRawUnsafe<any[]>(`SELECT SUM(total_harga) as total FROM orders WHERE tenant_id = $1 AND status = 'selesai' ${oc9.clause}`, tenantId, ...oc9.params);
     const total_revenue = Number(totRevRes[0]?.total || 0);
 
+    const oc10 = buildOutletCond(2, 'o');
     const payPendRes = await db.$queryRawUnsafe<any[]>(`
       SELECT COUNT(*) as count FROM payments p 
       JOIN orders o ON p.order_id = o.id 
-      WHERE p.status_pembayaran = 'pending' AND o.tenant_id = $1 ${outletCondRawOrders}
-    `, tenantId);
+      WHERE p.status_pembayaran = 'pending' AND o.tenant_id = $1 ${oc10.clause}
+    `, tenantId, ...oc10.params);
     const pay_pending_count = Number(payPendRes[0]?.count || 0);
 
-    const todayRevRes = await db.$queryRawUnsafe<any[]>(`SELECT SUM(total_harga) as total FROM orders WHERE tenant_id = $1 AND date(tgl_order) = CURRENT_DATE AND status != 'dibatalkan' ${outletCondRaw}`, tenantId);
+    const oc11 = buildOutletCond(2);
+    const todayRevRes = await db.$queryRawUnsafe<any[]>(`SELECT SUM(total_harga) as total FROM orders WHERE tenant_id = $1 AND date(tgl_order) = CURRENT_DATE AND status != 'dibatalkan' ${oc11.clause}`, tenantId, ...oc11.params);
     const today_revenue = Number(todayRevRes[0]?.total || 0);
 
     let status_counts: any = {};
     const statuses = ['menunggu_konfirmasi', 'diproses', 'siap_diambil', 'siap_diantar', 'selesai', 'dibatalkan'];
     for (const s of statuses) {
-      const scRes = await db.$queryRawUnsafe<any[]>(`SELECT COUNT(*) as count FROM orders WHERE tenant_id = $1 AND status = $2::order_status ${outletCondRaw}`, tenantId, s);
+      const oc12 = buildOutletCond(3);
+      const scRes = await db.$queryRawUnsafe<any[]>(`SELECT COUNT(*) as count FROM orders WHERE tenant_id = $1 AND status = $2::order_status ${oc12.clause}`, tenantId, s, ...oc12.params);
       status_counts[s] = Number(scRes[0]?.count || 0);
     }
 
