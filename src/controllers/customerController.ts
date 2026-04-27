@@ -114,7 +114,7 @@ export const updateCustomer = async (req: AuthRequest, res: Response) => {
         alamat = $3, 
         email = $4,
         server_version = CAST(EXTRACT(EPOCH FROM NOW()) * 1000 AS BIGINT)
-       WHERE tenant_id = $5 AND (id = $6 OR client_id = $7)
+       WHERE tenant_id = $5 AND (id = $6 OR client_id = $7) AND deleted_at IS NULL
        RETURNING id, client_id, nama, no_hp, alamat, email, server_version`,
       nama, no_hp || null, alamat || null, email || null, tenantId, id || -1, client_id || 'UNKNOWN'
     );

@@ -154,6 +154,12 @@ export const updateExpense = async (req: AuthRequest, res: Response) => {
 
 export const deleteExpense = async (req: AuthRequest, res: Response) => {
   try {
+    // BUG-10 FIX: RBAC — only admin/owner can delete expenses
+    const role = req.user?.role || '';
+    if (role !== 'admin' && role !== 'super_admin' && role !== 'owner') {
+      return res.status(403).json({ status: 'error', message: 'Akses ditolak. Hanya admin yang bisa menghapus pengeluaran.' });
+    }
+
     // Support id from body (POST), query string (DELETE ?id=), or body.id
     const idParam = req.body.id || req.query.id;
     const id = parseInt(idParam as string);

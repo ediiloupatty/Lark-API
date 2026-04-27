@@ -440,6 +440,16 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
   }
 };
 
+// ── Valid Status Transitions (state machine) ──
+const VALID_TRANSITIONS: Record<string, string[]> = {
+  menunggu_konfirmasi: ['diproses', 'dibatalkan'],
+  diproses: ['siap_diambil', 'siap_diantar', 'dibatalkan'],
+  siap_diambil: ['selesai', 'dibatalkan'],
+  siap_diantar: ['selesai', 'dibatalkan'],
+  selesai: [],      // terminal state
+  dibatalkan: [],   // terminal state
+};
+
 // PUT /api/v1/sync/update-order-status
 export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
   try {
@@ -450,19 +460,31 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
 
     if (!id || !status) return res.status(400).json({ status: 'error', message: 'ID pesanan dan status wajib diisi.' });
 
+    // ── Fetch current order state ──
+    const [currentOrder] = await db.$queryRawUnsafe<any[]>(
+      `SELECT o.id, o.status as current_status, p.status_pembayaran
+       FROM orders o
+       LEFT JOIN payments p ON p.order_id = o.id AND p.tenant_id = o.tenant_id
+       WHERE o.id = $1 AND o.tenant_id = $2
+       ORDER BY p.created_at DESC
+       LIMIT 1`,
+      parseInt(String(id)), tenantId
+    );
+    if (!currentOrder) return res.status(404).json({ status: 'error', message: 'Pesanan tidak ditemukan.' });
+
+    // ── BUG-8 FIX: Validate status transition ──
+    const currentStatus = currentOrder.current_status;
+    const allowedNext = VALID_TRANSITIONS[currentStatus] || [];
+    if (!allowedNext.includes(status)) {
+      return res.status(400).json({
+        status: 'error',
+        message: `Tidak bisa mengubah status dari "${currentStatus}" ke "${status}". Transisi yang valid: ${allowedNext.join(', ') || 'tidak ada (status final)'}.`,
+      });
+    }
+
     // ── Validasi: Pesanan tidak boleh "selesai" jika belum lunas ──
     if (status === 'selesai') {
-      const [order] = await db.$queryRawUnsafe<any[]>(
-        `SELECT o.id, p.status_pembayaran
-         FROM orders o
-         LEFT JOIN payments p ON p.order_id = o.id AND p.tenant_id = o.tenant_id
-         WHERE o.id = $1 AND o.tenant_id = $2
-         ORDER BY p.created_at DESC
-         LIMIT 1`,
-        parseInt(String(id)), tenantId
-      );
-      if (!order) return res.status(404).json({ status: 'error', message: 'Pesanan tidak ditemukan.' });
-      if (order.status_pembayaran !== 'lunas') {
+      if (currentOrder.status_pembayaran !== 'lunas') {
         return res.status(400).json({
           status: 'error',
           message: 'Pesanan tidak bisa diselesaikan sebelum pembayaran lunas. Silakan selesaikan pembayaran terlebih dahulu.',
@@ -580,9 +602,12 @@ export const payOrder = async (req: AuthRequest, res: Response) => {
       `, tenantId, parseInt(order_id), metodeBayar, jumlahBayar, confirmingUserId, buktiUrl);
     }
 
-    // Update order status to selesai and bump server_version for sync
+    // BUG-3 FIX: Do NOT auto-set status to 'selesai' on payment.
+    // Payment confirmation only updates the payment record.
+    // Status should follow the normal workflow: diproses → siap_diambil → selesai
+    // Just bump server_version so mobile syncs the payment change.
     await db.$queryRawUnsafe(
-      `UPDATE orders SET status = 'selesai', server_version = CAST(EXTRACT(EPOCH FROM NOW()) * 1000 AS BIGINT), updated_at = NOW() WHERE id = $1 AND tenant_id = $2`,
+      `UPDATE orders SET server_version = CAST(EXTRACT(EPOCH FROM NOW()) * 1000 AS BIGINT), updated_at = NOW() WHERE id = $1 AND tenant_id = $2`,
       parseInt(order_id), tenantId
     );
 
@@ -650,10 +675,11 @@ export const deleteOrder = async (req: AuthRequest, res: Response) => {
       return res.json({ status: 'success', message: 'Pesanan berhasil dibatalkan dan diarsipkan.' });
     }
 
-    // Non-admin: hanya bisa batalkan pesanan yang masih menunggu
+    // BUG-4+5 FIX: Non-admin can cancel 'diproses' orders too (initial status)
     const order = orderRows[0];
-    if (order.status !== 'menunggu_konfirmasi') {
-      return res.status(400).json({ status: 'error', message: 'Pesanan yang sedang diproses tidak bisa dibatalkan.' });
+    const CANCELLABLE_STATUSES = ['menunggu_konfirmasi', 'diproses'];
+    if (!CANCELLABLE_STATUSES.includes(order.status)) {
+      return res.status(400).json({ status: 'error', message: 'Pesanan yang sudah siap/selesai tidak bisa dibatalkan oleh karyawan.' });
     }
 
     await db.$queryRawUnsafe(

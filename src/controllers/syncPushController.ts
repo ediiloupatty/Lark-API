@@ -161,8 +161,9 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
          
          const finalTotalAmount = serverCalculatedTotal > 0 ? serverCalculatedTotal : totalAmount;
 
-         // Ensure the enums match the schema
-         let safeMethod: any = paymentMethod === 'cash' ? 'cash' : 'transfer'; // simplified mapping 
+         // BUG-7 FIX: Support all valid payment methods including QRIS
+         const VALID_PAY_METHODS = ['cash', 'transfer', 'qris'];
+         let safeMethod: any = VALID_PAY_METHODS.includes(paymentMethod) ? paymentMethod : 'cash';
 
          // Insert target
          const newOrder = await tx.orders.create({
@@ -171,6 +172,7 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
                customer_id: customerId,
                tracking_code: orderNumber,
                total_harga: finalTotalAmount,
+               tgl_order: new Date(), // BUG-11 FIX: Always set order date
                metode_antar: metodeAntar === 'jemput' ? 'jemput' : 'antar_sendiri',
                outlet_id: safeOutletId,
                user_id: req.user?.user_id,
@@ -180,6 +182,8 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
                     tenant_id: tenantId,
                     metode_pembayaran: safeMethod,
                     jumlah_bayar: finalTotalAmount,
+                    status_pembayaran: paymentStatus,
+                    ...(paymentStatus === 'lunas' ? { tgl_pembayaran: new Date() } : {}),
                     outlet_id: safeOutletId
                   }]
                },
@@ -188,6 +192,7 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
                }
             }
          });
+
 
          results.push({ offline_id: offlineId, official_order_number: orderNumber, status: 'synced_success' });
          successCount++;
