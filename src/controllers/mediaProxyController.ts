@@ -50,6 +50,13 @@ export const proxyMedia = async (req: Request, res: Response) => {
       return res.status(400).json({ status: 'error', message: 'Path tidak valid.' });
     }
 
+    // BUG-29 FIX: Only allow access to known upload prefixes
+    // Without this, an attacker could access any object in the R2 bucket
+    const ALLOWED_PREFIXES = ['payments/', 'expenses/'];
+    if (!ALLOWED_PREFIXES.some(prefix => mediaPath.startsWith(prefix))) {
+      return res.status(403).json({ status: 'error', message: 'Akses media tidak diizinkan.' });
+    }
+
     if (!R2_ACCESS_KEY_ID || !R2_ENDPOINT) {
       return res.status(503).json({ status: 'error', message: 'Storage tidak dikonfigurasi.' });
     }

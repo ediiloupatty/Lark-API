@@ -106,9 +106,11 @@ export async function getBlogArticle(req: Request, res: Response) {
  * Manual trigger generate — protected by simple secret header
  */
 export async function triggerGenerate(req: Request, res: Response) {
-  // Simple protection: require a secret header
+  // BUG-28 FIX: Use dedicated BLOG_SECRET instead of JWT_SECRET
+  // Sharing JWT_SECRET with blog auth means any JWT leak exposes blog generation
+  const expectedSecret = process.env.BLOG_SECRET || (process.env.JWT_SECRET ? `blog_${process.env.JWT_SECRET}` : '');
   const secret = req.headers['x-blog-secret'];
-  if (secret !== process.env.JWT_SECRET) {
+  if (!expectedSecret || secret !== expectedSecret) {
     res.status(403).json({ status: 'error', message: 'Akses ditolak.' });
     return;
   }
