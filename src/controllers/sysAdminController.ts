@@ -27,8 +27,20 @@ export const getGlobalStats = async (req: AuthRequest, res: Response) => {
       console.warn('Gagal menghitung blogs:', e);
     }
 
+    // 1b. Revenue today vs yesterday comparison
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const yesterdayStart = new Date(todayStart); yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+
+    const [revToday, revYesterday, newTenantsToday] = await Promise.all([
+      db.orders.aggregate({ _sum: { total_harga: true }, where: { status: { not: 'dibatalkan' }, tgl_order: { gte: todayStart } } }),
+      db.orders.aggregate({ _sum: { total_harga: true }, where: { status: { not: 'dibatalkan' }, tgl_order: { gte: yesterdayStart, lt: todayStart } } }),
+      db.tenants.count({ where: { created_at: { gte: todayStart } } }),
+    ]);
+    const revenueToday = Number((revToday._sum as any).total_harga) || 0;
+    const revenueYesterday = Number((revYesterday._sum as any).total_harga) || 0;
+    const revenueDelta = revenueYesterday > 0 ? Math.round(((revenueToday - revenueYesterday) / revenueYesterday) * 100) : (revenueToday > 0 ? 100 : 0);
+
     // 2. Data Chart: Pendapatan & Pesanan 30 hari terakhir (Group By Date)
-    // Prisma tidak memiliki dukungan native untuk GROUP BY DATE() dengan relasi yang mudah, kita gunakan queryRaw
     const chartDataRaw = await db.$queryRaw`
       SELECT 
         DATE(tgl_order) as date,
@@ -75,6 +87,10 @@ export const getGlobalStats = async (req: AuthRequest, res: Response) => {
         total_revenue: (revenueAgg._sum as any).total_harga || 0,
         total_blogs: totalBlogs,
         platform_mrr: platformMrr,
+        revenue_today: revenueToday,
+        revenue_yesterday: revenueYesterday,
+        revenue_delta: revenueDelta,
+        new_tenants_today: newTenantsToday,
         chart_data: chartData,
         activities: activities
       }
@@ -304,6 +320,15 @@ export const getFinanceData = async (req: AuthRequest, res: Response) => {
       LIMIT 10
     `;
 
+    // Revenue trend (daily, last 14 days) for chart
+    const revenueTrend = await db.$queryRaw`
+      SELECT DATE(tgl_order) as date, SUM(total_harga) as revenue, COUNT(*) as orders
+      FROM orders
+      WHERE tgl_order >= NOW() - INTERVAL '14 days' AND status != 'dibatalkan'
+      GROUP BY DATE(tgl_order)
+      ORDER BY date ASC
+    `;
+
     return res.status(200).json({
       success: true,
       data: {
@@ -332,6 +357,11 @@ export const getFinanceData = async (req: AuthRequest, res: Response) => {
           revenue: Number(r.revenue),
           orders: Number(r.orders),
         })),
+        revenue_trend: (revenueTrend as any[]).map(r => ({
+          date: r.date.toISOString().split('T')[0],
+          revenue: Number(r.revenue) || 0,
+          orders: Number(r.orders) || 0,
+        })),
       },
     });
   } catch (error: any) {
@@ -352,9 +382,13 @@ export const getAuditLogs = async (req: AuthRequest, res: Response) => {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 30;
     const skip = (page - 1) * limit;
+    const actionFilter = req.query.action as string | undefined;
 
-    const [logs, total] = await Promise.all([
+    const whereClause = actionFilter ? { action: actionFilter } : {};
+
+    const [logs, total, actionCounts] = await Promise.all([
       db.audit_logs.findMany({
+        where: whereClause,
         take: limit,
         skip,
         orderBy: { created_at: 'desc' },
@@ -364,7 +398,8 @@ export const getAuditLogs = async (req: AuthRequest, res: Response) => {
           outlets: { select: { nama: true } },
         },
       }),
-      db.audit_logs.count(),
+      db.audit_logs.count({ where: whereClause }),
+      db.audit_logs.groupBy({ by: ['action'], _count: { id: true }, orderBy: { _count: { id: 'desc' } } }),
     ]);
 
     return res.status(200).json({
@@ -385,6 +420,8 @@ export const getAuditLogs = async (req: AuthRequest, res: Response) => {
         total,
         page,
         total_pages: Math.ceil(total / limit),
+        action_filter: actionFilter || null,
+        available_actions: actionCounts.map((a: any) => ({ action: a.action, count: a._count.id })),
       },
     });
   } catch (error: any) {
@@ -416,6 +453,24 @@ export const getGlobalSettings = async (req: AuthRequest, res: Response) => {
     const totalServices = await db.services.count();
     const totalOutlets = await db.outlets.count();
 
+    // Platform growth: new users per month (last 6 months)
+    const growthRaw = await db.$queryRaw`
+      SELECT
+        to_char(date_trunc('month', created_at), 'YYYY-MM') as month,
+        COUNT(*) as new_users
+      FROM users
+      WHERE created_at >= NOW() - INTERVAL '6 months'
+      GROUP BY date_trunc('month', created_at)
+      ORDER BY month ASC
+    `;
+
+    // DB size
+    let dbSizeMb = 0;
+    try {
+      const sizeRes = await db.$queryRaw`SELECT pg_database_size(current_database()) as size`;
+      dbSizeMb = Math.round(Number((sizeRes as any[])[0]?.size) / 1024 / 1024);
+    } catch (_) {}
+
     // Subscription packages
     const packages = await db.subscription_packages.findMany({
       orderBy: { harga: 'asc' },
@@ -431,6 +486,9 @@ export const getGlobalSettings = async (req: AuthRequest, res: Response) => {
           uptime_seconds: Math.floor(process.uptime()),
           memory_mb: Math.round(process.memoryUsage().rss / 1024 / 1024),
           timestamp: new Date().toISOString(),
+          db_size_mb: dbSizeMb,
+          platform: process.platform,
+          arch: process.arch,
         },
         counts: {
           total_users: totalUsers,
@@ -449,6 +507,10 @@ export const getGlobalSettings = async (req: AuthRequest, res: Response) => {
           harga: Number(p.harga),
           badge_label: p.badge_label,
           is_active: p.is_active,
+        })),
+        platform_growth: (growthRaw as any[]).map(r => ({
+          month: r.month,
+          new_users: Number(r.new_users),
         })),
       },
     });
