@@ -453,7 +453,12 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
     // ── Validasi: Pesanan tidak boleh "selesai" jika belum lunas ──
     if (status === 'selesai') {
       const [order] = await db.$queryRawUnsafe<any[]>(
-        `SELECT status_pembayaran FROM orders WHERE id = $1 AND tenant_id = $2`,
+        `SELECT o.id, p.status_pembayaran
+         FROM orders o
+         LEFT JOIN payments p ON p.order_id = o.id AND p.tenant_id = o.tenant_id
+         WHERE o.id = $1 AND o.tenant_id = $2
+         ORDER BY p.created_at DESC
+         LIMIT 1`,
         parseInt(String(id)), tenantId
       );
       if (!order) return res.status(404).json({ status: 'error', message: 'Pesanan tidak ditemukan.' });
