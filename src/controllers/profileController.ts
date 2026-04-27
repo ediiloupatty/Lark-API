@@ -93,6 +93,21 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
       `, nama, email, username, no_hp || '', alamat || '', userId, tenantId);
     }
 
+    // ── Update tenant-level fields (nama_toko, alamat, no_hp) ──
+    // Hanya admin/owner yang boleh ubah nama tenant — karyawan tidak akan sampai sini
+    // karena frontend hanya mengirim nama_toko dari SettingsTab (admin-only page)
+    const { nama_toko } = req.body;
+    if (nama_toko && tenantId) {
+      const role = req.user?.role || '';
+      const isAdmin = ['admin', 'super_admin', 'owner'].includes(role);
+      if (isAdmin) {
+        await db.$queryRawUnsafe(`
+          UPDATE tenants SET name = $1, phone = COALESCE(NULLIF($2, ''), phone), address = COALESCE(NULLIF($3, ''), address)
+          WHERE id = $4
+        `, nama_toko, no_hp || '', alamat || '', tenantId);
+      }
+    }
+
     // Return updated
     const profileRes = await db.$queryRawUnsafe<any[]>(`
       SELECT u.username, u.nama, u.email, u.role, u.no_hp, u.alamat,
