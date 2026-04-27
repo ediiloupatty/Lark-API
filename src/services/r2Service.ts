@@ -23,12 +23,14 @@ const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB before compression
 
 // ── Compression ───────────────────────────────────────────────────
-// All images are converted to WebP, max 1280px wide, quality 75%.
-// Average output: 50-200KB from a 2-5MB phone photo.
+// All images are converted to WebP for optimal size/quality ratio.
+// Proof images (bukti) are reference documents — prioritize small size
+// over high resolution for fast loading on any network condition.
+// Average output: 30-120KB from a 2-5MB phone photo.
 async function compressImage(buffer: Buffer): Promise<Buffer> {
   return sharp(buffer)
-    .resize({ width: 1280, withoutEnlargement: true })
-    .webp({ quality: 75 })
+    .resize({ width: 800, withoutEnlargement: true })
+    .webp({ quality: 65, effort: 6 })
     .toBuffer();
 }
 
