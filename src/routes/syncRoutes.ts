@@ -14,6 +14,7 @@ import { getExpenses, addExpense, updateExpense, deleteExpense, getReports, getP
 import { getSettings, updateSettings, getSubscriptions } from '../controllers/settingsController';
 import { getProfile, updateProfile, changePassword } from '../controllers/profileController';
 import { registerToken, unregisterToken, getNotifications, markAllRead, markOneRead } from '../controllers/notificationController';
+import { upload } from '../middlewares/uploadMiddleware';
 
 const router = Router();
 
@@ -49,7 +50,7 @@ router.get('/orders', authenticateToken, getOrders);
 router.post('/create-order', authenticateToken, createOrder);
 router.post('/update-order-status', authenticateToken, updateOrderStatus);
 router.put('/update-order-status', authenticateToken, updateOrderStatus);
-router.post('/pay-order', authenticateToken, payOrder);
+router.post('/pay-order', authenticateToken, upload.single('bukti'), payOrder);
 router.post('/delete-order', authenticateToken, deleteOrder);
 router.delete('/delete-order', authenticateToken, deleteOrder);
 
@@ -84,10 +85,10 @@ router.delete('/manage-package', authenticateToken, adminOnly, deletePackage);
 
 // ── Finance & Reports ─────────────────────────────────────────
 router.get('/expenses', authenticateToken, getExpenses);
-router.post('/expenses', authenticateToken, addExpense);
-router.put('/expenses', authenticateToken, updateExpense);
+router.post('/expenses', authenticateToken, upload.single('bukti'), addExpense);
+router.put('/expenses', authenticateToken, upload.single('bukti'), updateExpense);
 router.delete('/expenses', authenticateToken, deleteExpense);
-router.post('/add-expense', authenticateToken, addExpense);
+router.post('/add-expense', authenticateToken, upload.single('bukti'), addExpense);
 router.post('/delete-expense', authenticateToken, deleteExpense);
 router.get('/reports', authenticateToken, getReports);
 router.get('/payments', authenticateToken, getPayments);

@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { db } from '../config/db';
 import { AuthRequest } from '../middlewares/authMiddleware';
+import { uploadToR2, deleteFromR2, isR2Configured } from '../services/r2Service';
 
 // --- EXPENSES ---
 export const getExpenses = async (req: AuthRequest, res: Response) => {
@@ -47,6 +48,18 @@ export const addExpense = async (req: AuthRequest, res: Response) => {
       if (!verifyOutlet) return res.status(403).json({ status: 'error', message: 'Outlet tidak valid atau tidak dimiliki tenant ini.' });
     }
 
+    // ── Upload bukti pengeluaran ke R2 (opsional) ──────────────────
+    let buktiUrl: string | null = null;
+    const multerFile = (req as any).file;
+    if (multerFile && isR2Configured()) {
+      try {
+        const expIdentifier = `${kategori.replace(/\s+/g, '-')}-${Date.now()}`;
+        buktiUrl = await uploadToR2(multerFile, 'expense', tenantId!, expIdentifier);
+      } catch (uploadErr: any) {
+        console.error('[AddExpense] R2 upload error (non-fatal):', uploadErr.message);
+      }
+    }
+
     const newExpense = await db.expenses.create({
       data: {
         tenant_id: tenantId!,
@@ -55,7 +68,8 @@ export const addExpense = async (req: AuthRequest, res: Response) => {
         jumlah: parseFloat(jumlah),
         metode_bayar: metode_bayar || 'cash',
         tanggal: new Date(tanggal || Date.now()),
-        ...(finalOutletId ? { outlet_id: finalOutletId } : {})
+        ...(finalOutletId ? { outlet_id: finalOutletId } : {}),
+        ...(buktiUrl ? { bukti_pengeluaran: buktiUrl } : {}),
       }
     });
 
@@ -91,6 +105,22 @@ export const updateExpense = async (req: AuthRequest, res: Response) => {
       if (!verifyOutlet) return res.status(403).json({ status: 'error', message: 'Outlet tidak valid atau tidak dimiliki tenant ini.' });
     }
 
+    // ── Upload bukti pengeluaran baru ke R2 (opsional) ─────────────
+    let buktiUrl: string | undefined = undefined;
+    const multerFile = (req as any).file;
+    if (multerFile && isR2Configured()) {
+      try {
+        const expIdentifier = `${(kategori || existing.kategori).replace(/\s+/g, '-')}-${Date.now()}`;
+        buktiUrl = await uploadToR2(multerFile, 'expense', tenantId!, expIdentifier);
+        // Hapus file lama dari R2 jika ada
+        if (existing.bukti_pengeluaran) {
+          await deleteFromR2(existing.bukti_pengeluaran);
+        }
+      } catch (uploadErr: any) {
+        console.error('[UpdateExpense] R2 upload error (non-fatal):', uploadErr.message);
+      }
+    }
+
     await db.expenses.update({
       where: { id: expId },
       data: {
@@ -99,7 +129,8 @@ export const updateExpense = async (req: AuthRequest, res: Response) => {
         jumlah: parseFloat(jumlah),
         metode_bayar: metode_bayar || 'cash',
         tanggal: new Date(tanggal || existing.tanggal),
-        ...(finalOutletId ? { outlet_id: finalOutletId } : {})
+        ...(finalOutletId ? { outlet_id: finalOutletId } : {}),
+        ...(buktiUrl ? { bukti_pengeluaran: buktiUrl } : {}),
       }
     });
 
@@ -117,10 +148,18 @@ export const deleteExpense = async (req: AuthRequest, res: Response) => {
     const id = parseInt(idParam as string);
     if (!id) return res.status(400).json({ status: 'error', message: 'ID pengeluaran diperlukan.' });
 
-    const result = await db.expenses.deleteMany({ where: { id, tenant_id: req.user?.tenant_id as number } });
-    if (result.count === 0) {
+    // Ambil existing untuk hapus file R2 jika ada
+    const existing = await db.expenses.findFirst({ where: { id, tenant_id: req.user?.tenant_id as number } });
+    if (!existing) {
       return res.status(404).json({ status: 'error', message: 'Pengeluaran tidak ditemukan.' });
     }
+
+    // Hapus file bukti dari R2 jika ada
+    if (existing.bukti_pengeluaran) {
+      await deleteFromR2(existing.bukti_pengeluaran);
+    }
+
+    await db.expenses.delete({ where: { id } });
     res.json({ status: 'success', message: 'Pengeluaran dihapus' });
   } catch (err: any) {
     console.error('[DeleteExpense Error]', err);
@@ -482,7 +521,8 @@ export const getPayments = async (req: AuthRequest, res: Response) => {
                    CASE WHEN COALESCE(p.jumlah_bayar, 0) = 0 THEN o.total_harga ELSE p.jumlah_bayar END as jumlah_bayar,
                    p.status_pembayaran, p.metode_pembayaran, 
                    COALESCE(p.tgl_pembayaran, p.konfirmasi_pada, o.tgl_order) as tgl_pembayaran,
-                   o.tracking_code, c.nama as pelanggan_nama
+                   o.tracking_code, c.nama as pelanggan_nama,
+                   p.bukti_pembayaran
             FROM payments p
             JOIN orders o ON p.order_id = o.id
             JOIN customers c ON o.customer_id = c.id
