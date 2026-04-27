@@ -80,8 +80,10 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
     // Mencegah user memodifikasi data jika JWT-nya di-tamper
     if (password) {
       const hashedPassword = await bcrypt.hash(password, 10);
+      // BUG-19 FIX: Bump token_version to invalidate old tokens when password changes
       await db.$queryRawUnsafe(`
-        UPDATE users SET nama = $1, email = $2, username = $3, password = $4, no_hp = $5, alamat = $6
+        UPDATE users SET nama = $1, email = $2, username = $3, password = $4, no_hp = $5, alamat = $6,
+               token_version = COALESCE(token_version, 0) + 1
         WHERE id = $7 AND tenant_id = $8
       `, nama, email, username, hashedPassword, no_hp || '', alamat || '', userId, tenantId);
     } else {
