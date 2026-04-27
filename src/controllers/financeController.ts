@@ -210,16 +210,30 @@ export const getReports = async (req: AuthRequest, res: Response) => {
     }
 
     // M-2: Validasi eksplisit — outletId HARUS integer sebelum masuk ke SQL.
-    // parseInt() sudah menjamin NaN atau integer, tapi ini defense-in-depth.
     if (outletId !== null && !Number.isInteger(outletId)) {
       outletId = null;
     }
 
-    // SAFETY: outletId di titik ini dijamin null | positive integer (dari parseInt + isInteger check).
-    // Interpolasi aman karena integer tidak bisa mengandung karakter SQL injection.
-    const outletCond     = outletId ? `AND o.outlet_id = ${outletId}` : '';
-    const outletCondPay  = outletId ? `AND COALESCE(p.outlet_id, o.outlet_id) = ${outletId}` : '';
-    const outletCondExp  = outletId ? `AND e.outlet_id = ${outletId}` : '';
+    // BUG-31 FIX: Use parameterized queries instead of string interpolation
+    // Previously outletId was interpolated directly which violates OWASP A03:2021
+    const buildOutletCond = (pIdx: number, alias = 'o') => {
+      if (outletId) {
+        return { clause: `AND ${alias}.outlet_id = $${pIdx}`, params: [outletId], nextIdx: pIdx + 1 };
+      }
+      return { clause: '', params: [] as any[], nextIdx: pIdx };
+    };
+    const buildOutletCondPay = (pIdx: number) => {
+      if (outletId) {
+        return { clause: `AND COALESCE(p.outlet_id, o.outlet_id) = $${pIdx}`, params: [outletId], nextIdx: pIdx + 1 };
+      }
+      return { clause: '', params: [] as any[], nextIdx: pIdx };
+    };
+    const buildOutletCondExp = (pIdx: number) => {
+      if (outletId) {
+        return { clause: `AND e.outlet_id = $${pIdx}`, params: [outletId], nextIdx: pIdx + 1 };
+      }
+      return { clause: '', params: [] as any[], nextIdx: pIdx };
+    };
 
     // Previous period
     const start = new Date(startDate);
@@ -238,6 +252,7 @@ export const getReports = async (req: AuthRequest, res: Response) => {
     }
 
     // --- Summary current period ---
+    const oc1 = buildOutletCond(4);
     const summaryRows = await db.$queryRawUnsafe<any[]>(`
       SELECT
         COUNT(o.id) AS total_orders,
@@ -253,8 +268,8 @@ export const getReports = async (req: AuthRequest, res: Response) => {
       LEFT JOIN LATERAL (
         SELECT p.status_pembayaran FROM payments p WHERE p.order_id = o.id ORDER BY p.id DESC LIMIT 1
       ) pay ON TRUE
-      WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3 ${outletCond}
-    `, tenantId, startDate, endDate);
+      WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3 ${oc1.clause}
+    `, tenantId, startDate, endDate, ...oc1.params);
 
     const s = summaryRows[0] || {};
     const grossRevenue      = Number(s.gross_revenue      || 0);
@@ -273,13 +288,14 @@ export const getReports = async (req: AuthRequest, res: Response) => {
     const cancellationRate  = totalOrders > 0 ? (cancelledOrders / totalOrders) * 100 : 0;
 
     // --- Previous period (for growth %) ---
+    const oc2 = buildOutletCond(4);
     const prevRows = await db.$queryRawUnsafe<any[]>(`
       SELECT
         COUNT(CASE WHEN o.status != 'dibatalkan' THEN 1 END) AS billable_orders,
         COALESCE(SUM(CASE WHEN o.status != 'dibatalkan' THEN o.total_harga ELSE 0 END), 0) AS gross_revenue
       FROM orders o
-      WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3 ${outletCond}
-    `, tenantId, prevStartStr, prevEndStr);
+      WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3 ${oc2.clause}
+    `, tenantId, prevStartStr, prevEndStr, ...oc2.params);
 
     const prevRevenue = Number(prevRows[0]?.gross_revenue || 0);
     const prevOrders  = Number(prevRows[0]?.billable_orders || 0);
@@ -287,19 +303,21 @@ export const getReports = async (req: AuthRequest, res: Response) => {
     const orderGrowthPct   = prevOrders  === 0 ? (billableOrders > 0 ? 100 : 0) : ((billableOrders - prevOrders) / prevOrders) * 100;
 
     // --- Expenses ---
+    const oc3 = buildOutletCondExp(4);
     const expRows = await db.$queryRawUnsafe<any[]>(`
       SELECT COALESCE(SUM(jumlah), 0) AS total FROM expenses e
-      WHERE e.tenant_id = $1 AND DATE(e.tanggal) BETWEEN $2 AND $3 ${outletCondExp}
-    `, tenantId, startDate, endDate);
+      WHERE e.tenant_id = $1 AND DATE(e.tanggal) BETWEEN $2 AND $3 ${oc3.clause}
+    `, tenantId, startDate, endDate, ...oc3.params);
     const totalExpenses = Number(expRows[0]?.total || 0);
 
     // --- Status breakdown ---
+    const oc4 = buildOutletCond(4);
     const statusRaw = await db.$queryRawUnsafe<any[]>(`
       SELECT o.status, COUNT(*) AS order_count, COALESCE(SUM(o.total_harga), 0) AS total_amount
       FROM orders o
-      WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3 ${outletCond}
+      WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3 ${oc4.clause}
       GROUP BY o.status
-    `, tenantId, startDate, endDate);
+    `, tenantId, startDate, endDate, ...oc4.params);
 
     const statusIndex: any = {};
     for (const r of statusRaw) statusIndex[r.status] = r;
@@ -324,6 +342,7 @@ export const getReports = async (req: AuthRequest, res: Response) => {
     });
 
     // --- Payment breakdown ---
+    const oc5 = buildOutletCond(4);
     const payRows = await db.$queryRawUnsafe<any[]>(`
       SELECT COALESCE(pay.status_pembayaran, 'pending') AS payment_status,
              COUNT(o.id) AS order_count,
@@ -333,9 +352,9 @@ export const getReports = async (req: AuthRequest, res: Response) => {
         SELECT p.status_pembayaran FROM payments p WHERE p.order_id = o.id ORDER BY p.id DESC LIMIT 1
       ) pay ON TRUE
       WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3
-        AND o.status != 'dibatalkan' ${outletCond}
+        AND o.status != 'dibatalkan' ${oc5.clause}
       GROUP BY COALESCE(pay.status_pembayaran, 'pending')
-    `, tenantId, startDate, endDate);
+    `, tenantId, startDate, endDate, ...oc5.params);
 
     const payIndex: any = {};
     for (const r of payRows) payIndex[r.payment_status] = r;
@@ -353,6 +372,7 @@ export const getReports = async (req: AuthRequest, res: Response) => {
     });
 
     // --- Payment methods ---
+    const oc6 = buildOutletCond(4);
     const methodRows = await db.$queryRawUnsafe<any[]>(`
       SELECT COALESCE(pay.metode_pembayaran::text, 'belum_dicatat') AS payment_method,
              COUNT(o.id) AS order_count,
@@ -362,10 +382,10 @@ export const getReports = async (req: AuthRequest, res: Response) => {
         SELECT p.status_pembayaran, p.metode_pembayaran FROM payments p WHERE p.order_id = o.id ORDER BY p.id DESC LIMIT 1
       ) pay ON TRUE
       WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3
-        AND o.status != 'dibatalkan' AND pay.status_pembayaran = 'lunas' ${outletCond}
+        AND o.status != 'dibatalkan' AND pay.status_pembayaran = 'lunas' ${oc6.clause}
       GROUP BY COALESCE(pay.metode_pembayaran::text, 'belum_dicatat')
       ORDER BY total_amount DESC LIMIT 5
-    `, tenantId, startDate, endDate);
+    `, tenantId, startDate, endDate, ...oc6.params);
 
     const paymentMethods = methodRows.map(r => ({
       payment_method: r.payment_method,
@@ -375,15 +395,16 @@ export const getReports = async (req: AuthRequest, res: Response) => {
     }));
 
     // --- Chart data ---
+    const oc7 = buildOutletCond(4);
     const chartRaw = await db.$queryRawUnsafe<any[]>(`
       SELECT DATE(o.tgl_order) AS order_date,
              COUNT(CASE WHEN o.status != 'dibatalkan' THEN 1 END) AS daily_orders,
              COALESCE(SUM(CASE WHEN o.status != 'dibatalkan' THEN o.total_harga ELSE 0 END), 0) AS daily_revenue
       FROM orders o
-      WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3 ${outletCond}
+      WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3 ${oc7.clause}
       GROUP BY DATE(o.tgl_order)
       ORDER BY DATE(o.tgl_order) ASC
-    `, tenantId, startDate, endDate);
+    `, tenantId, startDate, endDate, ...oc7.params);
 
     const chartIndex: any = {};
     for (const r of chartRaw) {
@@ -402,26 +423,29 @@ export const getReports = async (req: AuthRequest, res: Response) => {
     }
 
     // --- Top services ---
+    const oc8 = buildOutletCond(4);
     const topServices = await db.$queryRawUnsafe<any[]>(`
       SELECT s.nama_layanan, COUNT(od.id) AS count, COALESCE(SUM(od.subtotal), 0) AS total
       FROM order_details od
       JOIN services s ON od.service_id = s.id
       JOIN orders o ON od.order_id = o.id
-      WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3 AND o.status != 'dibatalkan' ${outletCond}
+      WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3 AND o.status != 'dibatalkan' ${oc8.clause}
       GROUP BY s.nama_layanan ORDER BY total DESC LIMIT 5
-    `, tenantId, startDate, endDate);
+    `, tenantId, startDate, endDate, ...oc8.params);
 
     // --- Top customers ---
+    const oc9 = buildOutletCond(4);
     const topCustomers = await db.$queryRawUnsafe<any[]>(`
       SELECT c.nama, COUNT(o.id) AS count, COALESCE(SUM(o.total_harga), 0) AS total_spent
       FROM orders o JOIN customers c ON o.customer_id = c.id
-      WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3 AND o.status != 'dibatalkan' ${outletCond}
+      WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3 AND o.status != 'dibatalkan' ${oc9.clause}
       GROUP BY c.nama ORDER BY total_spent DESC LIMIT 5
-    `, tenantId, startDate, endDate);
+    `, tenantId, startDate, endDate, ...oc9.params);
 
     // --- Top staff ---
     // Primary: staff who confirmed payments (dikonfirmasi_oleh)
     // Fallback: staff by outlet orders processed (when no payment confirmation data yet)
+    const oc10 = buildOutletCondPay(4);
     let topStaff = await db.$queryRawUnsafe<any[]>(`
       SELECT u.nama, COUNT(p.id) AS count, COALESCE(SUM(p.jumlah_bayar), 0) AS total_confirmed
       FROM payments p
@@ -429,12 +453,13 @@ export const getReports = async (req: AuthRequest, res: Response) => {
       JOIN orders o ON p.order_id = o.id
       WHERE p.tenant_id = $1
         AND DATE(COALESCE(p.tgl_pembayaran, o.tgl_order)) BETWEEN $2 AND $3
-        AND p.status_pembayaran = 'lunas' ${outletCondPay}
+        AND p.status_pembayaran = 'lunas' ${oc10.clause}
       GROUP BY u.nama ORDER BY total_confirmed DESC LIMIT 5
-    `, tenantId, startDate, endDate);
+    `, tenantId, startDate, endDate, ...oc10.params);
 
     // If no payment confirmation data exists, fall back to staff performance by orders in their outlet
     if (topStaff.length === 0) {
+      const oc11 = buildOutletCond(4);
       topStaff = await db.$queryRawUnsafe<any[]>(`
         SELECT u.nama,
                COUNT(DISTINCT o.id) AS count,
@@ -446,9 +471,9 @@ export const getReports = async (req: AuthRequest, res: Response) => {
           AND u.role::text = 'karyawan'
           AND o.status NOT IN ('dibatalkan')
           AND DATE(o.tgl_order) BETWEEN $2 AND $3
-          ${outletCond}
+          ${oc11.clause}
         GROUP BY u.nama ORDER BY total_confirmed DESC LIMIT 5
-      `, tenantId, startDate, endDate);
+      `, tenantId, startDate, endDate, ...oc11.params);
     }
 
     // If still empty (no staff with outlet assignments), show all karyawan at minimum
