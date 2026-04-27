@@ -134,14 +134,34 @@ export const deleteOutlet = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ status: 'error', message: 'Akses ditolak.' });
     }
 
-    const { id } = req.body;
-    if (!id) return res.status(400).json({ status: 'error', message: 'ID Outlet diperlukan.' });
+    const idParam = req.body.id || req.query.id;
+    if (!idParam) return res.status(400).json({ status: 'error', message: 'ID Outlet diperlukan.' });
 
-    await db.$queryRawUnsafe(`DELETE FROM outlets WHERE id = $1 AND tenant_id = $2`, parseInt(id), tenantId);
+    const outletId = parseInt(idParam as string);
 
-    res.json({ status: 'success', message: 'Outlet dihapus.' });
+    // Check for active orders linked to this outlet
+    const activeOrders = await db.$queryRawUnsafe<any[]>(
+      `SELECT COUNT(*) as count FROM orders WHERE outlet_id = $1 AND tenant_id = $2 AND status NOT IN ('selesai', 'dibatalkan')`,
+      outletId, tenantId
+    );
+    if (Number(activeOrders[0]?.count || 0) > 0) {
+      return res.status(400).json({
+        status: 'error',
+        message: `Outlet masih memiliki ${activeOrders[0].count} pesanan aktif. Selesaikan semua pesanan terlebih dahulu.`
+      });
+    }
+
+    // BUG-15 FIX: Soft delete instead of hard delete to prevent broken foreign keys
+    const updated = await db.$queryRawUnsafe<any[]>(
+      `UPDATE outlets SET is_active = false WHERE id = $1 AND tenant_id = $2 RETURNING id`,
+      outletId, tenantId
+    );
+
+    if (updated.length === 0) return res.status(404).json({ status: 'error', message: 'Outlet tidak ditemukan.' });
+
+    res.json({ status: 'success', message: 'Outlet berhasil dinonaktifkan.' });
   } catch (err: any) {
     console.error('[DeleteOutlet Error]', err);
-    res.status(500).json({ status: 'error', message: 'Gagal menghapus outlet. Pastikan tidak ada transaksi terkait.' });
+    res.status(500).json({ status: 'error', message: 'Gagal menghapus outlet.' });
   }
 };
