@@ -50,25 +50,45 @@ export const getProfile = async (req: AuthRequest, res: Response) => {
 export const updateProfile = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user?.user_id;
+    const tenantId = req.user?.tenant_id;
     if (!userId) return res.status(401).json({ status: 'error', message: 'Token tidak valid' });
 
     const { nama, email, username, no_hp, alamat, password } = req.body;
-    
-    // Check if username exists
-    const checkUser = await db.$queryRawUnsafe<any[]>(`SELECT id FROM users WHERE username = $1 AND id != $2`, username, userId);
+
+    // H-1: Validasi input wajib — cegah update dengan data kosong
+    if (!nama || !username) {
+      return res.status(400).json({ status: 'error', message: 'Nama dan username wajib diisi.' });
+    }
+
+    // H-2: Validasi password minimum jika diubah
+    if (password && (password as string).length < 8) {
+      return res.status(400).json({ status: 'error', message: 'Password minimal 8 karakter.' });
+    }
+
+    // [SECURITY FIX] P1: Scope username uniqueness ke tenant_id
+    // Sebelumnya: global check → user Tenant A gagal pakai username milik Tenant B
+    // Sesudah: hanya cek dalam tenant yang sama (username hanya unik per tenant)
+    const checkUser = await db.$queryRawUnsafe<any[]>(
+      `SELECT id FROM users WHERE username = $1 AND id != $2 AND tenant_id = $3`,
+      username, userId, tenantId
+    );
     if (checkUser.length > 0) {
       return res.status(400).json({ status: 'error', message: 'Username sudah digunakan oleh akun lain.' });
     }
 
+    // [SECURITY FIX] Tambah tenant_id di WHERE clause untuk defense-in-depth
+    // Mencegah user memodifikasi data jika JWT-nya di-tamper
     if (password) {
       const hashedPassword = await bcrypt.hash(password, 10);
       await db.$queryRawUnsafe(`
-        UPDATE users SET nama = $1, email = $2, username = $3, password = $4, no_hp = $5, alamat = $6 WHERE id = $7
-      `, nama, email, username, hashedPassword, no_hp, alamat, userId);
+        UPDATE users SET nama = $1, email = $2, username = $3, password = $4, no_hp = $5, alamat = $6
+        WHERE id = $7 AND tenant_id = $8
+      `, nama, email, username, hashedPassword, no_hp || '', alamat || '', userId, tenantId);
     } else {
       await db.$queryRawUnsafe(`
-        UPDATE users SET nama = $1, email = $2, username = $3, no_hp = $4, alamat = $5 WHERE id = $6
-      `, nama, email, username, no_hp, alamat, userId);
+        UPDATE users SET nama = $1, email = $2, username = $3, no_hp = $4, alamat = $5
+        WHERE id = $6 AND tenant_id = $7
+      `, nama, email, username, no_hp || '', alamat || '', userId, tenantId);
     }
 
     // Return updated

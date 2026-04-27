@@ -555,13 +555,46 @@ export const getPayments = async (req: AuthRequest, res: Response) => {
 export const approvePayment = async (req: AuthRequest, res: Response) => {
     try {
         const tenantId = req.user?.tenant_id;
+        if (!tenantId) return res.status(403).json({ status: 'error', message: 'Tenant required.' });
+
+        // [SECURITY FIX] P2: Role check — hanya admin/owner yang boleh approve pembayaran
+        // Karyawan bisa membuat pesanan, tapi konfirmasi pembayaran harus oleh level admin
+        // untuk menjaga integritas keuangan dan mencegah penyalahgunaan.
+        const role = req.user?.role || '';
+        if (role !== 'admin' && role !== 'super_admin' && role !== 'owner') {
+          return res.status(403).json({ status: 'error', message: 'Akses ditolak. Hanya admin yang bisa mengonfirmasi pembayaran.' });
+        }
+
+        // H-1: Validasi input
         const id = parseInt(req.body.id);
-        
-        // Fix: also fill jumlah_bayar from order total if it was stored as 0
+        if (!id || isNaN(id)) {
+          return res.status(400).json({ status: 'error', message: 'ID pembayaran tidak valid.' });
+        }
+
+        // H-2: Verifikasi pembayaran ada dan milik tenant ini
+        const existing = await db.$queryRaw<any[]>`
+          SELECT p.id, p.status_pembayaran, p.order_id
+          FROM payments p
+          WHERE p.id = ${id} AND p.tenant_id = ${tenantId}
+        `;
+        if (!existing || existing.length === 0) {
+          return res.status(404).json({ status: 'error', message: 'Pembayaran tidak ditemukan.' });
+        }
+
+        // H-3: Cegah approve ganda — hanya pending yang bisa di-approve
+        if (existing[0].status_pembayaran === 'lunas') {
+          return res.status(400).json({ status: 'error', message: 'Pembayaran sudah berstatus lunas.' });
+        }
+
+        const confirmingUserId = req.user?.user_id || 0;
+
+        // Update: set lunas + catat siapa yang mengonfirmasi (audit trail)
         await db.$executeRaw`
             UPDATE payments p SET 
               status_pembayaran = 'lunas', 
               tgl_pembayaran = NOW(),
+              konfirmasi_pada = NOW(),
+              dikonfirmasi_oleh = ${confirmingUserId},
               jumlah_bayar = CASE 
                 WHEN COALESCE(p.jumlah_bayar, 0) = 0 
                 THEN (SELECT COALESCE(o.total_harga, 0) FROM orders o WHERE o.id = p.order_id)
@@ -571,7 +604,8 @@ export const approvePayment = async (req: AuthRequest, res: Response) => {
         `;
         
         res.json({ status: 'success', message: 'Pembayaran Dikonfirmasi Lunas' });
-    } catch (err) {
+    } catch (err: any) {
+        console.error('[ApprovePayment Error]', err);
         res.status(500).json({ status: 'error', message: 'Gagal mengonfirmasi pembayaran' });
     }
 };
