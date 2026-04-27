@@ -240,6 +240,7 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
 
   } catch (err: any) {
     console.error('[Sync Push]', err);
-    res.status(500).json({ status: 'error', message: 'Gagal melakukan sinkronisasi.', error: err.message });
+    // BUG-25 FIX: Don't leak raw error messages to client (could expose DB schema/Prisma internals)
+    res.status(500).json({ status: 'error', message: 'Gagal melakukan sinkronisasi.' });
   }
 };
