@@ -27,11 +27,11 @@ export class PaymentController {
         data: paymentData // Contains SessionId, Url, etc.
       });
 
-    } catch (error: any) {
-      console.error('Error creating test transaction:', error);
+    } catch (error: unknown) {
+      console.error('[iPaymu] Create transaction error:', error);
       return res.status(500).json({
         success: false,
-        message: error.message || 'Terjadi kesalahan saat memproses pembayaran'
+        message: 'Terjadi kesalahan saat memproses pembayaran.'
       });
     }
   }
@@ -41,7 +41,7 @@ export class PaymentController {
     try {
       // iPaymu sends payment status updates to this URL via POST
       const notificationData = req.body;
-      console.log('Received iPaymu Notification:', notificationData);
+      console.info('[iPaymu] Received notification:', { status: notificationData.status, trx_id: notificationData.trx_id });
 
       // Handle the status update (e.g., update user subscription status)
       // For now, just acknowledge receipt

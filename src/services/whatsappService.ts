@@ -86,7 +86,7 @@ export async function sendWhatsApp(opts: SendWAOptions): Promise<void> {
     if (!result?.status) {
       console.warn(`[WA Fonnte] Gagal kirim ke ${normalizedPhone}:`, result?.reason);
     } else {
-      console.log(`[WA Fonnte] Terkirim ke ${normalizedPhone}`);
+      console.info(`[WA Fonnte] Terkirim ke ${normalizedPhone}`);
     }
   } catch (err) {
     // Tidak lempar error — pengiriman WA tidak boleh menggagalkan proses bisnis

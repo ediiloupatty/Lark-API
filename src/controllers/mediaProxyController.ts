@@ -64,7 +64,8 @@ export const proxyMedia = async (req: Request, res: Response) => {
     // Fetch directly from R2 via S3 API (private, not public URL)
     // Strip leading slash if present (Express 5 *path may include it)
     const key = mediaPath.replace(/^\/+/, '');
-    console.log(`[MediaProxy] Requested key: "${key}" (raw param: "${mediaPath}")`);
+    // Debug-level: high-traffic endpoint, avoid info log noise
+    console.debug(`[MediaProxy] Requested key: "${key}"`);
 
     const client = getS3Client();
     const command = new GetObjectCommand({

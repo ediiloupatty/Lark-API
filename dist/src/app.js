@@ -122,6 +122,9 @@ app.get('/api/v1/public/landing-stats', publicController_1.getLandingStats);
 app.get('/api/v1/public/blog', blogController_1.listBlogArticles);
 app.post('/api/v1/public/blog/generate', blogController_1.triggerGenerate);
 app.get('/api/v1/public/blog/:slug', blogController_1.getBlogArticle);
+// Media proxy — serves R2 images through our domain to bypass ISP SSL interception
+const mediaProxyController_1 = require("./controllers/mediaProxyController");
+app.get('/api/v1/public/media/*path', mediaProxyController_1.proxyMedia);
 // Expense alias routes
 app.get('/api/v1/expenses', authMiddleware_1.authenticateToken, financeController_1.getExpenses);
 app.post('/api/v1/expenses', authMiddleware_1.authenticateToken, financeController_1.addExpense);

@@ -16,6 +16,7 @@ const financeController_1 = require("../controllers/financeController");
 const settingsController_1 = require("../controllers/settingsController");
 const profileController_1 = require("../controllers/profileController");
 const notificationController_1 = require("../controllers/notificationController");
+const uploadMiddleware_1 = require("../middlewares/uploadMiddleware");
 const router = (0, express_1.Router)();
 // ── Shorthand untuk role groups ──────────────────────────────────
 const ADMIN_ROLES = ['admin', 'owner', 'super_admin'];
@@ -44,7 +45,7 @@ router.get('/orders', authMiddleware_1.authenticateToken, orderController_1.getO
 router.post('/create-order', authMiddleware_1.authenticateToken, orderController_1.createOrder);
 router.post('/update-order-status', authMiddleware_1.authenticateToken, orderController_1.updateOrderStatus);
 router.put('/update-order-status', authMiddleware_1.authenticateToken, orderController_1.updateOrderStatus);
-router.post('/pay-order', authMiddleware_1.authenticateToken, orderController_1.payOrder);
+router.post('/pay-order', authMiddleware_1.authenticateToken, uploadMiddleware_1.upload.single('bukti'), orderController_1.payOrder);
 router.post('/delete-order', authMiddleware_1.authenticateToken, orderController_1.deleteOrder);
 router.delete('/delete-order', authMiddleware_1.authenticateToken, orderController_1.deleteOrder);
 // ── Outlets (admin only — karyawan tidak boleh kelola outlet) ──
@@ -75,10 +76,10 @@ router.put('/manage-package', authMiddleware_1.authenticateToken, adminOnly, pac
 router.delete('/manage-package', authMiddleware_1.authenticateToken, adminOnly, packageController_1.deletePackage);
 // ── Finance & Reports ─────────────────────────────────────────
 router.get('/expenses', authMiddleware_1.authenticateToken, financeController_1.getExpenses);
-router.post('/expenses', authMiddleware_1.authenticateToken, financeController_1.addExpense);
-router.put('/expenses', authMiddleware_1.authenticateToken, financeController_1.updateExpense);
+router.post('/expenses', authMiddleware_1.authenticateToken, uploadMiddleware_1.upload.single('bukti'), financeController_1.addExpense);
+router.put('/expenses', authMiddleware_1.authenticateToken, uploadMiddleware_1.upload.single('bukti'), financeController_1.updateExpense);
 router.delete('/expenses', authMiddleware_1.authenticateToken, financeController_1.deleteExpense);
-router.post('/add-expense', authMiddleware_1.authenticateToken, financeController_1.addExpense);
+router.post('/add-expense', authMiddleware_1.authenticateToken, uploadMiddleware_1.upload.single('bukti'), financeController_1.addExpense);
 router.post('/delete-expense', authMiddleware_1.authenticateToken, financeController_1.deleteExpense);
 router.get('/reports', authMiddleware_1.authenticateToken, financeController_1.getReports);
 router.get('/payments', authMiddleware_1.authenticateToken, financeController_1.getPayments);

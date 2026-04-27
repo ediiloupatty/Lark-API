@@ -409,9 +409,9 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
           orderId: result.orderId,
           tipe: 'new_order',
           pesan: pushBody,
-        }).catch(() => {});
+        }).catch((e: unknown) => console.error('[Notification] Save failed:', e));
       }
-    }).catch(() => {});
+    }).catch((e: unknown) => console.error('[Notification] Admin lookup failed:', e));
 
     // ── Kirim WhatsApp otomatis ke pelanggan via Fonnte (async) ──
     db.customers.findFirst({ where: { id: parseInt(customer_id), tenant_id: tenantId! } })
@@ -430,9 +430,9 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
           estimasi_tanggal: req.body.estimasi_tanggal || new Date(Date.now() + 3*24*60*60*1000).toISOString(),
           layanan_nama: svc?.nama_layanan,
         });
-        sendWhatsApp({ tenantId: tenantId!, phone: cust.no_hp, message: msg }).catch(() => {});
+        sendWhatsApp({ tenantId: tenantId!, phone: cust.no_hp, message: msg }).catch((e: unknown) => console.error('[WA] New order send failed:', e));
       })
-      .catch(() => {});
+      .catch((e: unknown) => console.error('[WA] Customer lookup failed:', e));
 
   } catch (err: any) {
     console.error('[CreateOrder Error]', err);
@@ -531,8 +531,8 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
           tracking_code: r.tracking_code,
           status,
         });
-        if (msg) sendWhatsApp({ tenantId: tenantId!, phone: r.no_hp, message: msg }).catch(() => {});
-      }).catch(() => {});
+        if (msg) sendWhatsApp({ tenantId: tenantId!, phone: r.no_hp, message: msg }).catch((e: unknown) => console.error('[WA] Status update send failed:', e));
+      }).catch((e: unknown) => console.error('[WA] Order lookup for status notify failed:', e));
     }
   } catch (err: any) {
     console.error('[UpdateOrderStatus Error]', err);

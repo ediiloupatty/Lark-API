@@ -23,12 +23,22 @@ exports.getSettings = getSettings;
 const updateSettings = async (req, res) => {
     try {
         const tenantId = req.user?.tenant_id;
+        if (!tenantId)
+            return res.status(403).json({ status: 'error', message: 'Tenant required.' });
+        // [SECURITY FIX] P1: Role check — hanya admin/owner yang boleh ubah pengaturan toko
+        // Karyawan TIDAK boleh mengubah setting (WhatsApp config, nota, jam operasional, dll)
+        // karena ini berdampak langsung ke operasional bisnis seluruh tenant.
+        const role = req.user?.role || '';
+        if (role !== 'admin' && role !== 'super_admin' && role !== 'owner') {
+            return res.status(403).json({ status: 'error', message: 'Akses ditolak. Hanya admin yang bisa mengubah pengaturan.' });
+        }
         const updates = req.body;
         // Fix B-2: Whitelist key yang diizinkan — cegah injection key sembarang
         const ALLOWED_SETTING_KEYS = new Set([
             'toko_info', 'nota_info', 'whatsapp_config',
             'jam_operasional', 'global_staff_permissions', 'printer_config',
         ]);
+        let updatedCount = 0;
         for (const [key, value] of Object.entries(updates)) {
             if (!ALLOWED_SETTING_KEYS.has(key))
                 continue;
@@ -37,10 +47,12 @@ const updateSettings = async (req, res) => {
                 update: { setting_value: value, updated_at: new Date() },
                 create: { tenant_id: tenantId, setting_key: key, setting_value: value }
             });
+            updatedCount++;
         }
-        res.json({ status: 'success', message: 'Pengaturan berhasil disimpan!' });
+        res.json({ status: 'success', message: `Pengaturan berhasil disimpan! (${updatedCount} item diperbarui)` });
     }
     catch (err) {
+        console.error('[UpdateSettings Error]', err);
         res.status(500).json({ status: 'error', message: 'Gagal menyimpan pengaturan' });
     }
 };
