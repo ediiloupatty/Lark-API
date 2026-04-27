@@ -89,7 +89,7 @@ describe('Outlet Controller', () => {
       .send({ id: newOutletId });
 
     expect(res.status).toBe(200);
-    expect(res.body.message).toContain('dihapus');
+    expect(res.body.message).toContain('dinonaktifkan');
   });
 
   // 🔒 Security: Karyawan tidak bisa delete
