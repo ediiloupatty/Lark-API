@@ -4,6 +4,7 @@ import { AuthRequest } from '../middlewares/authMiddleware';
 import crypto from 'crypto';
 import { sendPushToAdmins, saveNotification } from '../services/firebaseService';
 import { sendWhatsApp, buildNewOrderMessage, buildStatusUpdateMessage } from '../services/whatsappService';
+import { uploadToR2, isR2Configured } from '../services/r2Service';
 
 function generateTrackingCode() {
   return 'ORD-' + crypto.randomBytes(3).toString('hex').toUpperCase();
@@ -514,7 +515,7 @@ export const payOrder = async (req: AuthRequest, res: Response) => {
     }
 
     const orderRes = await db.$queryRawUnsafe<any[]>(
-      `SELECT id, total_harga FROM orders WHERE id = $1 AND tenant_id = $2`, parseInt(order_id), tenantId
+      `SELECT id, total_harga, tracking_code FROM orders WHERE id = $1 AND tenant_id = $2`, parseInt(order_id), tenantId
     );
     if (orderRes.length === 0) {
       return res.status(404).json({ status: 'error', message: 'Order tidak ditemukan.' });
@@ -527,6 +528,19 @@ export const payOrder = async (req: AuthRequest, res: Response) => {
 
     const confirmingUserId: number = req.user?.user_id || 0;
 
+    // ── Upload bukti pembayaran ke R2 (opsional) ──────────────────
+    let buktiUrl: string | null = null;
+    const multerFile = (req as any).file;
+    if (multerFile && isR2Configured()) {
+      try {
+        const trackingCode = orderRes[0].tracking_code || `ORD${order_id}`;
+        buktiUrl = await uploadToR2(multerFile, 'payment', tenantId!, trackingCode);
+      } catch (uploadErr: any) {
+        console.error('[PayOrder] R2 upload error (non-fatal):', uploadErr.message);
+        // Non-fatal: pembayaran tetap diproses meski upload gagal
+      }
+    }
+
     const updated = await db.$queryRawUnsafe<any[]>(`
       UPDATE payments SET
         metode_pembayaran = $1,
@@ -534,15 +548,16 @@ export const payOrder = async (req: AuthRequest, res: Response) => {
         status_pembayaran = 'lunas',
         tgl_pembayaran = NOW(),
         konfirmasi_pada = NOW(),
-        dikonfirmasi_oleh = $5
+        dikonfirmasi_oleh = $5,
+        bukti_pembayaran = COALESCE($6, bukti_pembayaran)
       WHERE order_id = $3 AND tenant_id = $4 RETURNING id
-    `, metodeBayar, jumlahBayar, parseInt(order_id), tenantId, confirmingUserId);
+    `, metodeBayar, jumlahBayar, parseInt(order_id), tenantId, confirmingUserId, buktiUrl);
 
     if (updated.length === 0) {
       await db.$queryRawUnsafe(`
-        INSERT INTO payments (tenant_id, order_id, metode_pembayaran, jumlah_bayar, status_pembayaran, tgl_pembayaran, konfirmasi_pada, dikonfirmasi_oleh)
-        VALUES ($1, $2, $3, $4, 'lunas', NOW(), NOW(), $5)
-      `, tenantId, parseInt(order_id), metodeBayar, jumlahBayar, confirmingUserId);
+        INSERT INTO payments (tenant_id, order_id, metode_pembayaran, jumlah_bayar, status_pembayaran, tgl_pembayaran, konfirmasi_pada, dikonfirmasi_oleh, bukti_pembayaran)
+        VALUES ($1, $2, $3, $4, 'lunas', NOW(), NOW(), $5, $6)
+      `, tenantId, parseInt(order_id), metodeBayar, jumlahBayar, confirmingUserId, buktiUrl);
     }
 
     // Update order status to selesai and bump server_version for sync
@@ -555,7 +570,8 @@ export const payOrder = async (req: AuthRequest, res: Response) => {
     const updatedOrder = await db.$queryRawUnsafe<any[]>(`
       SELECT o.*, c.nama as nama_pelanggan, c.no_hp,
              p.status_pembayaran, p.tgl_pembayaran, p.jumlah_bayar,
-             p.metode_pembayaran as metode_bayar, p.konfirmasi_pada
+             p.metode_pembayaran as metode_bayar, p.konfirmasi_pada,
+             p.bukti_pembayaran
       FROM orders o
       JOIN customers c ON o.customer_id = c.id
       LEFT JOIN payments p ON o.id = p.order_id
