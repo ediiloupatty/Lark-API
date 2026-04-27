@@ -18,7 +18,7 @@ const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || '';
 export const proxyMedia = async (req: Request, res: Response) => {
   try {
     // Extract the full path after /media/
-    const mediaPath = req.params[0];
+    const mediaPath = req.params.path || req.params[0];
     if (!mediaPath) {
       return res.status(400).json({ status: 'error', message: 'Path media tidak valid.' });
     }
