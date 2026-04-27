@@ -53,10 +53,14 @@ export const proxyMedia = async (req: Request, res: Response) => {
     }
 
     // Fetch directly from R2 via S3 API (private, not public URL)
+    // Strip leading slash if present (Express 5 *path may include it)
+    const key = mediaPath.replace(/^\/+/, '');
+    console.log(`[MediaProxy] Requested key: "${key}" (raw param: "${mediaPath}")`);
+
     const client = getS3Client();
     const command = new GetObjectCommand({
       Bucket: R2_BUCKET,
-      Key: mediaPath,
+      Key: key,
     });
 
     const r2Response = await client.send(command);
