@@ -27,6 +27,7 @@ dotenv.config({ path: findEnvFile() });
 
 import app from './app';
 import { checkConnection, db, pool } from './config/db';
+import { startReminderScheduler } from './schedulers/reminderScheduler';
 
 const PORT = process.env.PORT || 3000;
 
@@ -111,6 +112,11 @@ async function bootstrap() {
       console.warn('⚠️  Server jalan TANPA koneksi database. Periksa DATABASE_URL dan status PostgreSQL!');
     }
   });
+
+  // Start daily reminder cron job (09:00 WIB)
+  if (isDbConnected) {
+    startReminderScheduler();
+  }
 }
 
 bootstrap();

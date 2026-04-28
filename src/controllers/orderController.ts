@@ -271,7 +271,20 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
     }
 
     const trackingCode = generateTrackingCode();
-    const estimasiTanggal = req.body.estimasi_tanggal || new Date(Date.now() + 3*24*60*60*1000).toISOString().split('T')[0];
+
+    // ── Estimation logic ──
+    // If paket_id is provided, use estimasi from client (existing flow).
+    // If paket_id is NOT provided (per-item duration mode), compute from longest item durasi_jam.
+    let estimasiTanggal = req.body.estimasi_tanggal;
+    if (!estimasiTanggal) {
+      // Find longest duration from items
+      const longestDurasiJam = items.reduce((max: number, it: any) => {
+        const d = parseInt(it.durasi_jam || '0');
+        return d > max ? d : max;
+      }, 0);
+      const durasiMs = (longestDurasiJam > 0 ? longestDurasiJam : 72) * 3600000;
+      estimasiTanggal = new Date(Date.now() + durasiMs).toISOString().split('T')[0];
+    }
     const estimasiWaktu = req.body.estimasi_waktu || 'Pagi (08:00-12:00)';
 
     // Start Transaction
@@ -485,6 +498,7 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   siap_diantar: ['selesai', 'dibatalkan'],
   selesai: [],      // terminal state
   dibatalkan: [],   // terminal state
+  abandoned: [],    // terminal state — auto-set by reminder scheduler
 };
 
 // PUT /api/v1/sync/update-order-status
