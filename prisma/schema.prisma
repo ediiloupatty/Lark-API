@@ -448,6 +448,7 @@ enum order_status {
   siap_diantar
   selesai
   dibatalkan
+  abandoned
 }
 
 enum payment_method {
