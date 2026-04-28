@@ -206,7 +206,7 @@ DASHSCOPE_API_KEY=sk-your-dashscope-api-key
 
 ## 🗄️ Database Schema
 
-21 tabel PostgreSQL, dikelola via Prisma ORM:
+22 tabel PostgreSQL, dikelola via Prisma ORM:
 
 | Tabel | Fungsi |
 |:---|:---|
@@ -215,9 +215,10 @@ DASHSCOPE_API_KEY=sk-your-dashscope-api-key
 | `outlets` | Cabang/outlet per tenant |
 | `services` | Layanan (Cuci Biasa, Cuci Setrika, dll.) |
 | `orders` | Pesanan laundry |
-| `order_details` | Detail per item pesanan |
+| `order_details` | Detail per item pesanan (berat/qty, satuan, durasi modifier) |
+| `order_status_logs` | **Audit trail** setiap perubahan status pesanan |
 | `customers` | Data pelanggan |
-| `payments` | Riwayat pembayaran |
+| `payments` | Riwayat pembayaran (support DP/deposit parsial) |
 | `expenses` | Pengeluaran operasional |
 | `subscription_packages` | Paket berlangganan (1/3/12 bulan) |
 | `tenant_settings` | Konfigurasi toko per tenant |
@@ -227,11 +228,35 @@ DASHSCOPE_API_KEY=sk-your-dashscope-api-key
 | `notifications` | Notifikasi in-app |
 | `promotions` | Promo/diskon |
 | `inventory` | Stok bahan (detergen, pewangi, dll.) |
-| `paket_laundry` | Paket layanan bundling |
+| `paket_laundry` | Paket layanan (durasi modifier) |
 | `reports` | Laporan keuangan |
 | `reviews` | Review pelanggan |
 | `webhook_logs` | Log webhook payment gateway |
-| `blog_articles` | Artikel blog auto-generated |
+
+### Status Pesanan (State Machine)
+
+```
+DITERIMA → DIPROSES → SIAP_DIAMBIL/SIAP_DIANTAR → SELESAI
+                    ↘ DIBATALKAN
+```
+
+| Status | Deskripsi | Trigger |
+|:---|:---|:---|
+| `diterima` | Barang baru masuk, nota dicetak | Auto saat order dibuat |
+| `diproses` | Cucian masuk proses (cuci/kering/setrika) | Manual oleh kasir |
+| `siap_diambil` | Cucian selesai, menunggu customer | Manual oleh kasir |
+| `siap_diantar` | Cucian selesai, akan diantar kurir | Manual oleh kasir |
+| `selesai` | Customer sudah ambil + bayar lunas | Manual + validasi bayar |
+| `dibatalkan` | Pesanan dibatalkan | Manual + konfirmasi |
+
+### Opsi Pembayaran
+
+| Status | Deskripsi |
+|:---|:---|
+| `pending` | Belum bayar |
+| `dp` | Deposit parsial (bayar sebagian, sisa saat pickup) |
+| `lunas` | Sudah lunas |
+| `dibatalkan` | Pembayaran dibatalkan |
 
 ---
 
