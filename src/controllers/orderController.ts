@@ -280,7 +280,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       const orderData: any = {
         tenant_id: tenantId,
         customer_id: parsedCustomerId,
-        status: 'diproses',
+        status: 'diterima',
         metode_antar: metode_antar || 'antar_sendiri',
         catatan: catatan || '',
         tracking_code: trackingCode,
@@ -310,11 +310,15 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
         if (sid > 0 && chargeBasis > 0) {
           const serviceRow = await tx.services.findFirst({
             where: { id: sid, tenant_id: tenantId, is_active: true },
-            select: { harga_per_kg: true }
+            select: { harga_per_kg: true, satuan: true }
           });
-          if (serviceRow) {
+        if (serviceRow) {
             const price = Number(serviceRow.harga_per_kg);
-            const subtotal = chargeBasis * price;
+            const itemSatuan = it.satuan || serviceRow.satuan || 'kg';
+            const durasiJam = it.durasi_jam ? parseInt(it.durasi_jam) : null;
+            const durasiLabel = it.durasi_label || null;
+            const hargaModifier = Number(it.harga_modifier || 0);
+            const subtotal = (chargeBasis * price) + hargaModifier;
             totalHarga += subtotal;
 
             await tx.order_details.create({
@@ -324,7 +328,11 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
                 jumlah: jumlah > 0 ? jumlah : null,
                 berat: berat > 0 ? berat : null,
                 harga: price,
-                subtotal: subtotal
+                subtotal: subtotal,
+                satuan: itemSatuan,
+                durasi_jam: durasiJam,
+                durasi_label: durasiLabel,
+                harga_modifier: hargaModifier
               }
             });
           }
@@ -337,11 +345,26 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
         data: { total_harga: totalHarga }
       });
 
-      // Payments
+      // Payments — Support DP (deposit parsial)
       const isPayNow = status_bayar === 'sekarang' && totalHarga > 0;
-      const payStatus = isPayNow ? 'lunas' : 'pending';
-      // Always store the real amount so "Rp 0" never appears in history
-      const payAmount = totalHarga;
+      const isDp = status_bayar === 'dp' && totalHarga > 0;
+      const dpAmount = isDp ? Number(req.body.jumlah_dp || 0) : 0;
+      
+      let payStatus: string;
+      let payAmount: number;
+      let dpValue: number | null = null;
+      
+      if (isPayNow) {
+        payStatus = 'lunas';
+        payAmount = totalHarga;
+      } else if (isDp && dpAmount > 0) {
+        payStatus = 'dp';
+        payAmount = dpAmount;
+        dpValue = dpAmount;
+      } else {
+        payStatus = 'pending';
+        payAmount = totalHarga;
+      }
       
       // Fallback enum mapping for metode_bayar to match Prisma definition
       let paymentMethodStr = metode_bayar || 'cash';
@@ -355,14 +378,26 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
           order_id: orderId,
           metode_pembayaran: paymentMethodStr as any,
           jumlah_bayar: payAmount,
-          status_pembayaran: payStatus,
-          // Set tgl_pembayaran immediately if lunas, so history shows the date
+          jumlah_dp: dpValue,
+          status_pembayaran: payStatus as any,
           ...(isPayNow ? { tgl_pembayaran: new Date() } : {}),
           outlet_id: safeOutletId
         }
       });
 
-      return { orderId, totalHarga, trackingCode };
+      // Audit log: record initial status
+      await tx.order_status_logs.create({
+        data: {
+          order_id: orderId,
+          tenant_id: tenantId,
+          status_lama: '-',
+          status_baru: 'diterima',
+          changed_by: userId || null,
+          catatan: 'Pesanan baru dibuat'
+        }
+      });
+
+      return { orderId, totalHarga, trackingCode, payStatus, dpValue };
     });
 
     res.status(201).json({
@@ -372,8 +407,9 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
         order_id: result.orderId,
         tracking_code: result.trackingCode,
         total_amount: result.totalHarga,
-        status: 'diproses',
-        status_pembayaran: status_bayar === 'sekarang' ? 'lunas' : 'pending',
+        status: 'diterima',
+        status_pembayaran: result.payStatus,
+        jumlah_dp: result.dpValue,
         metode_bayar: status_bayar === 'sekarang' ? metode_bayar : null,
         user_nama: req.user?.nama || req.user?.username || 'Karyawan',
         karyawan_nama: req.user?.nama || req.user?.username || 'Karyawan'
@@ -442,7 +478,8 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
 
 // ── Valid Status Transitions (state machine) ──
 const VALID_TRANSITIONS: Record<string, string[]> = {
-  menunggu_konfirmasi: ['diproses', 'dibatalkan'],
+  diterima: ['diproses', 'dibatalkan'],
+  menunggu_konfirmasi: ['diterima', 'diproses', 'dibatalkan'],
   diproses: ['siap_diambil', 'siap_diantar', 'dibatalkan'],
   siap_diambil: ['selesai', 'dibatalkan'],
   siap_diantar: ['selesai', 'dibatalkan'],
@@ -507,6 +544,18 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
     );
 
     if (updated.length === 0) return res.status(404).json({ status: 'error', message: 'Pesanan tidak ditemukan.' });
+
+    // Audit log: record status transition
+    await db.order_status_logs.create({
+      data: {
+        order_id: parseInt(String(id)),
+        tenant_id: tenantId!,
+        status_lama: currentStatus,
+        status_baru: status,
+        changed_by: req.user?.user_id || null,
+        catatan: req.body.catatan_status || null
+      }
+    }).catch((e: unknown) => console.error('[AuditLog] Failed to save status log:', e));
 
     res.json({
       status: 'success',
@@ -677,7 +726,7 @@ export const deleteOrder = async (req: AuthRequest, res: Response) => {
 
     // BUG-4+5 FIX: Non-admin can cancel 'diproses' orders too (initial status)
     const order = orderRows[0];
-    const CANCELLABLE_STATUSES = ['menunggu_konfirmasi', 'diproses'];
+    const CANCELLABLE_STATUSES = ['diterima', 'menunggu_konfirmasi', 'diproses'];
     if (!CANCELLABLE_STATUSES.includes(order.status)) {
       return res.status(400).json({ status: 'error', message: 'Pesanan yang sudah siap/selesai tidak bisa dibatalkan oleh karyawan.' });
     }

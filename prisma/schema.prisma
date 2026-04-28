@@ -107,17 +107,21 @@ model device_tokens {
 }
 
 model order_details {
-  id            Int       @id @default(autoincrement())
-  order_id      Int
-  service_id    Int?
-  jenis_pakaian String?   @db.VarChar(100)
-  jumlah        Int?
-  berat         Decimal?  @db.Decimal(10, 2)
-  harga         Decimal?  @db.Decimal(10, 2)
-  subtotal      Decimal?  @db.Decimal(10, 2)
-  created_at    DateTime? @default(now()) @db.Timestamp(6)
-  orders        orders    @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  services      services? @relation(fields: [service_id], references: [id], onUpdate: NoAction)
+  id              Int       @id @default(autoincrement())
+  order_id        Int
+  service_id      Int?
+  jenis_pakaian   String?   @db.VarChar(100)
+  jumlah          Int?
+  berat           Decimal?  @db.Decimal(10, 2)
+  harga           Decimal?  @db.Decimal(10, 2)
+  subtotal        Decimal?  @db.Decimal(10, 2)
+  satuan          String?   @default("kg") @db.VarChar(20)
+  durasi_jam      Int?
+  durasi_label    String?   @db.VarChar(50)
+  harga_modifier  Decimal?  @default(0) @db.Decimal(10, 2)
+  created_at      DateTime? @default(now()) @db.Timestamp(6)
+  orders          orders    @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  services        services? @relation(fields: [service_id], references: [id], onUpdate: NoAction)
 }
 
 model orders {
@@ -147,8 +151,9 @@ model orders {
   updated_at       DateTime?       @default(now()) @db.Timestamp(6)
   client_id        String?         @db.VarChar(64)
   server_version   BigInt?
-  notifications    notifications[]
-  order_details    order_details[]
+  notifications      notifications[]
+  order_details       order_details[]
+  order_status_logs   order_status_logs[]
   customers        customers       @relation(fields: [customer_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   outlets          outlets?        @relation(fields: [outlet_id], references: [id], onUpdate: NoAction)
   tenants          tenants         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -206,6 +211,7 @@ model payments {
   order_id          Int
   metode_pembayaran payment_method
   jumlah_bayar      Decimal         @db.Decimal(10, 2)
+  jumlah_dp         Decimal?        @db.Decimal(10, 2)
   status_pembayaran payment_status? @default(pending)
   outlet_id         Int?
   bukti_pembayaran  String?         @db.VarChar(255)
@@ -329,6 +335,7 @@ model tenants {
   inventory          inventory[]
   notifications      notifications[]
   orders             orders[]
+  order_status_logs  order_status_logs[]
   outlets            outlets[]
   paket_laundry      paket_laundry[]
   payments           payments[]
@@ -382,11 +389,29 @@ model users {
   device_tokens        device_tokens[]
   notifications        notifications[]
   orders               orders[]
+  order_status_logs    order_status_logs[]
   payments             payments[]
   reports              reports[]
   user_sessions        user_sessions[]
   outlets              outlets?        @relation(fields: [outlet_id], references: [id], onUpdate: NoAction)
   tenants              tenants?        @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model order_status_logs {
+  id          BigInt    @id @default(autoincrement())
+  order_id    Int
+  tenant_id   Int
+  status_lama String    @db.VarChar(50)
+  status_baru String    @db.VarChar(50)
+  changed_by  Int?
+  catatan     String?
+  created_at  DateTime? @default(now()) @db.Timestamp(6)
+  orders      orders    @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants     tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users       users?    @relation(fields: [changed_by], references: [id], onUpdate: NoAction)
+
+  @@index([order_id], map: "idx_order_status_logs_order")
+  @@index([tenant_id], map: "idx_order_status_logs_tenant")
 }
 
 model webhook_logs {
@@ -416,6 +441,7 @@ enum metode_antar {
 }
 
 enum order_status {
+  diterima
   menunggu_konfirmasi
   diproses
   siap_diambil
@@ -438,6 +464,7 @@ enum payment_method {
 
 enum payment_status {
   pending
+  dp
   lunas
   dibatalkan
 }
