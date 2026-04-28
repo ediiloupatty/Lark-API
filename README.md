@@ -579,6 +579,21 @@ npx tsx src/scripts/generateBlog.ts
 
 ---
 
+## Built With AI
+
+This project was developed with the assistance of AI-powered tools:
+
+| Tool | Role |
+|:---|:---|
+| <img src="https://img.shields.io/badge/Anthropic-Claude_Opus_4.6-D97706?logo=anthropic&logoColor=white" /> | Architecture design, code generation, debugging |
+| <img src="https://img.shields.io/badge/Google-Gemini_3.1_Pro-4285F4?logo=google&logoColor=white" /> | Code review, optimization, best practice analysis |
+| <img src="https://img.shields.io/badge/OpenAI-Codex-412991?logo=openai&logoColor=white" /> | Code completion, refactoring assistance |
+| <img src="https://img.shields.io/badge/Google_DeepMind-Antigravity-34A853?logo=google&logoColor=white" /> | AI-powered text editor for development workflow |
+
+> All AI-generated code has been reviewed, tested, and validated by the developer before deployment.
+
+---
+
 ## License
 
 **Proprietary** — © 2026 Edi Loupatty. All rights reserved.
