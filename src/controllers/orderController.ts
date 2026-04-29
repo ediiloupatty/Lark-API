@@ -379,10 +379,11 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
         payAmount = totalHarga;
       }
       
-      // Fallback enum mapping for metode_bayar to match Prisma definition
+      // Validate metode_bayar against Prisma enum payment_method
+      const VALID_PAYMENT_METHODS = ['cash', 'transfer', 'qris', 'ovo', 'dana', 'gopay'];
       let paymentMethodStr = metode_bayar || 'cash';
-      if (paymentMethodStr !== 'cash' && paymentMethodStr !== 'transfer') {
-        paymentMethodStr = 'cash'; // fallback to valid enum
+      if (!VALID_PAYMENT_METHODS.includes(paymentMethodStr)) {
+        paymentMethodStr = 'cash'; // fallback hanya jika benar-benar tidak valid
       }
 
       await tx.payments.create({
