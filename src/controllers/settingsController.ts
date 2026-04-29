@@ -38,7 +38,7 @@ export const updateSettings = async (req: AuthRequest, res: Response) => {
 
     // Fix B-2: Whitelist key yang diizinkan — cegah injection key sembarang
     const ALLOWED_SETTING_KEYS = new Set([
-      'toko_info', 'nota_info', 'whatsapp_config',
+      'toko_info', 'nota_info', 'whatsapp_config', 'reminder_config',
       'jam_operasional', 'global_staff_permissions', 'printer_config',
     ]);
 
