@@ -12,6 +12,7 @@ import { authorizeRole } from '../middlewares/authorizeRole';
 import { getPackages, addPackage, updatePackage, deletePackage } from '../controllers/packageController';
 import { getExpenses, addExpense, updateExpense, deleteExpense, getReports, getPayments, approvePayment } from '../controllers/financeController';
 import { getSettings, updateSettings, getSubscriptions } from '../controllers/settingsController';
+import { getProducts, addProduct, updateProduct, deleteProduct, getProductCategories, addProductCategory, deleteProductCategory } from '../controllers/productController';
 import { getProfile, updateProfile, changePassword } from '../controllers/profileController';
 import { registerToken, unregisterToken, getNotifications, markAllRead, markOneRead } from '../controllers/notificationController';
 import { upload } from '../middlewares/uploadMiddleware';
@@ -98,6 +99,15 @@ router.post('/approve-payment', authenticateToken, adminOnly, approvePayment);
 router.get('/settings', authenticateToken, adminOnly, getSettings);
 router.post('/settings', authenticateToken, adminOnly, updateSettings);
 router.get('/subscriptions', authenticateToken, adminOnly, getSubscriptions);
+
+// ── Products & Categories (semua role boleh GET, CUD = admin only) ──
+router.get('/products', authenticateToken, getProducts);
+router.post('/products', authenticateToken, adminOnly, addProduct);
+router.put('/products', authenticateToken, adminOnly, updateProduct);
+router.delete('/products', authenticateToken, adminOnly, deleteProduct);
+router.get('/product-categories', authenticateToken, getProductCategories);
+router.post('/product-categories', authenticateToken, adminOnly, addProductCategory);
+router.delete('/product-categories', authenticateToken, adminOnly, deleteProductCategory);
 
 // ── Notifications & Device Token ──────────────────────────────
 router.post('/device-token', authenticateToken, registerToken);
