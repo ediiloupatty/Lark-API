@@ -129,6 +129,14 @@ describe('Order Controller', () => {
 
   // ✅ Normal: Update status
   it('PUT /sync/update-order-status — berhasil', async () => {
+    const processingRes = await request(app)
+      .put('/api/v1/sync/update-order-status')
+      .set(authHeaders(ctx.adminToken))
+      .send({ order_id: createdOrderId, status: 'diproses' });
+
+    expect(processingRes.status).toBe(200);
+    expect(processingRes.body.status).toBe('success');
+
     const res = await request(app)
       .put('/api/v1/sync/update-order-status')
       .set(authHeaders(ctx.adminToken))
