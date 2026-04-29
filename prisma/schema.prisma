@@ -151,6 +151,8 @@ model orders {
   updated_at       DateTime?       @default(now()) @db.Timestamp(6)
   client_id        String?         @db.VarChar(64)
   server_version   BigInt?
+  parfum_id        Int?
+  parfum_harga     Decimal?        @default(0) @db.Decimal(10, 2)
   notifications      notifications[]
   order_details       order_details[]
   order_products      order_products[]
@@ -159,6 +161,7 @@ model orders {
   outlets          outlets?        @relation(fields: [outlet_id], references: [id], onUpdate: NoAction)
   tenants          tenants         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   users            users?          @relation(fields: [user_id], references: [id], onUpdate: NoAction)
+  parfums          parfums?        @relation(fields: [parfum_id], references: [id], onUpdate: NoAction)
   payments         payments[]
 
   @@unique([tenant_id, client_id], map: "idx_orders_tenant_client_id", where: raw("(client_id IS NOT NULL)"))
@@ -347,6 +350,7 @@ model tenants {
   users              users[]
   product_categories product_categories[]
   products           products[]
+  parfums            parfums[]
 }
 
 model user_sessions {
@@ -548,4 +552,20 @@ model order_products {
   products   products  @relation(fields: [product_id], references: [id], onUpdate: NoAction)
 
   @@index([order_id], map: "idx_order_products_order")
+}
+
+model parfums {
+  id              Int       @id @default(autoincrement())
+  tenant_id       Int
+  nama            String    @db.VarChar(100)
+  emoji           String?   @default("🧴") @db.VarChar(10)
+  harga_tambahan  Decimal   @default(0) @db.Decimal(10, 2)
+  is_default      Boolean   @default(false)
+  is_active       Boolean   @default(true)
+  deskripsi       String?
+  created_at      DateTime? @default(now()) @db.Timestamp(6)
+  tenants         tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  orders          orders[]
+
+  @@index([tenant_id], map: "idx_parfums_tenant")
 }

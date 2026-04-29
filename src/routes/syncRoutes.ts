@@ -13,6 +13,7 @@ import { getPackages, addPackage, updatePackage, deletePackage } from '../contro
 import { getExpenses, addExpense, updateExpense, deleteExpense, getReports, getPayments, approvePayment } from '../controllers/financeController';
 import { getSettings, updateSettings, getSubscriptions } from '../controllers/settingsController';
 import { getProducts, addProduct, updateProduct, deleteProduct, getProductCategories, addProductCategory, deleteProductCategory } from '../controllers/productController';
+import { getParfums, addParfum, updateParfum, deleteParfum } from '../controllers/parfumController';
 import { getProfile, updateProfile, changePassword } from '../controllers/profileController';
 import { registerToken, unregisterToken, getNotifications, markAllRead, markOneRead } from '../controllers/notificationController';
 import { upload } from '../middlewares/uploadMiddleware';
@@ -108,6 +109,12 @@ router.delete('/products', authenticateToken, adminOnly, deleteProduct);
 router.get('/product-categories', authenticateToken, getProductCategories);
 router.post('/product-categories', authenticateToken, adminOnly, addProductCategory);
 router.delete('/product-categories', authenticateToken, adminOnly, deleteProductCategory);
+
+// ── Parfums (semua role boleh GET, CUD = admin only) ──────────
+router.get('/parfums', authenticateToken, getParfums);
+router.post('/parfums', authenticateToken, adminOnly, addParfum);
+router.put('/parfums', authenticateToken, adminOnly, updateParfum);
+router.delete('/parfums', authenticateToken, adminOnly, deleteParfum);
 
 // ── Notifications & Device Token ──────────────────────────────
 router.post('/device-token', authenticateToken, registerToken);
