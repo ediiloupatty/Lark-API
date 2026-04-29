@@ -580,7 +580,7 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
     const WA_NOTIFY_STATUSES = ['siap_diambil', 'siap_diantar', 'selesai'];
     if (WA_NOTIFY_STATUSES.includes(status)) {
       db.$queryRawUnsafe<any[]>(
-        `SELECT o.tracking_code, c.no_hp, c.nama as nama_pelanggan, t.nama as nama_toko
+        `SELECT o.tracking_code, c.no_hp, c.nama as nama_pelanggan, t.name as nama_toko
          FROM orders o
          JOIN customers c ON o.customer_id = c.id
          JOIN tenants t ON o.tenant_id = t.id
