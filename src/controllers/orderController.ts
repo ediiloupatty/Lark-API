@@ -313,7 +313,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       
       let totalHarga = 0;
 
-      // Insert Items
+      // Insert Items (Layanan)
       for (const it of items) {
         const sid = parseInt(it.service_id);
         const berat = Number(it.berat || it.qty || 0);
@@ -348,6 +348,42 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
                 harga_modifier: hargaModifier
               }
             });
+          }
+        }
+      }
+
+      // Insert Products (Opsional — barang fisik add-on)
+      const productItems = req.body.products;
+      if (Array.isArray(productItems) && productItems.length > 0) {
+        for (const p of productItems) {
+          const pid = parseInt(p.product_id);
+          const qty = parseInt(p.qty || '1');
+          if (pid > 0 && qty > 0) {
+            const productRow = await tx.products.findFirst({
+              where: { id: pid, tenant_id: tenantId, is_active: true },
+              select: { harga: true, lacak_stok: true, stok: true, nama: true }
+            });
+            if (productRow) {
+              // Cek stok jika lacak_stok aktif
+              if (productRow.lacak_stok && productRow.stok < qty) {
+                throw new Error(`Stok "${productRow.nama}" tidak cukup (sisa: ${productRow.stok}).`);
+              }
+              const prodPrice = Number(productRow.harga);
+              const prodSubtotal = qty * prodPrice;
+              totalHarga += prodSubtotal;
+
+              await tx.order_products.create({
+                data: { order_id: orderId, product_id: pid, jumlah: qty, harga: prodPrice, subtotal: prodSubtotal }
+              });
+
+              // Kurangi stok otomatis jika lacak_stok aktif
+              if (productRow.lacak_stok) {
+                await tx.products.update({
+                  where: { id: pid },
+                  data: { stok: { decrement: qty }, updated_at: new Date() }
+                });
+              }
+            }
           }
         }
       }
