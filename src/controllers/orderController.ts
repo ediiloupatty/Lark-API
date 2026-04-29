@@ -387,11 +387,28 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
           }
         }
       }
+      // ── Parfum (opsional) ──
+      const parfumId = req.body.parfum_id ? parseInt(req.body.parfum_id) : null;
+      let parfumHarga = 0;
+      if (parfumId) {
+        const parfumRow = await tx.parfums.findFirst({
+          where: { id: parfumId, tenant_id: tenantId, is_active: true },
+          select: { harga_tambahan: true },
+        });
+        if (parfumRow) {
+          parfumHarga = Number(parfumRow.harga_tambahan || 0);
+          totalHarga += parfumHarga;
+        }
+      }
 
-      // Update Total
+      // Update Total + Parfum
       await tx.orders.update({
         where: { id: orderId },
-        data: { total_harga: totalHarga }
+        data: {
+          total_harga: totalHarga,
+          parfum_id: parfumId,
+          parfum_harga: parfumHarga,
+        }
       });
 
       // Payments — Support DP (deposit parsial)
