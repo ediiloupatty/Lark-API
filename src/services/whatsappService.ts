@@ -1,10 +1,12 @@
-import { Client, LocalAuth } from 'whatsapp-web.js';
+import makeWASocket, { useMultiFileAuthState, DisconnectReason, WASocket } from '@whiskeysockets/baileys';
+import { Boom } from '@hapi/boom';
 import * as qrcode from 'qrcode';
 import fs from 'fs';
 import path from 'path';
+import pino from 'pino';
 
 interface WASession {
-  client: Client;
+  client: WASocket;
   qrCode: string | null;
   status: 'disconnected' | 'connecting' | 'connected';
   retries: number;
@@ -15,7 +17,6 @@ const sessions = new Map<number, WASession>();
 export class WhatsAppService {
   /**
    * Menginisialisasi Client WA untuk suatu tenant (toko).
-   * @param tenantId ID Toko
    */
   static async initialize(tenantId: number): Promise<void> {
     if (sessions.has(tenantId)) {
@@ -25,80 +26,79 @@ export class WhatsAppService {
       }
     }
 
-    console.log(`[WA] Initializing client for tenant ${tenantId}...`);
+    console.log(`[WA] Initializing Baileys client for tenant ${tenantId}...`);
 
-    // Hapus SingletonLock jika tertinggal akibat crash sebelumnya
-    const sessionDir = path.join(__dirname, `../../../wa_sessions/session-tenant_${tenantId}`);
-    try {
-      if (fs.existsSync(path.join(sessionDir, 'SingletonLock'))) {
-        fs.unlinkSync(path.join(sessionDir, 'SingletonLock'));
-      }
-      if (fs.existsSync(path.join(sessionDir, 'SingletonCookie'))) {
-        fs.unlinkSync(path.join(sessionDir, 'SingletonCookie'));
-      }
-    } catch (e) {
-      console.warn(`[WA] Could not remove lock files for tenant ${tenantId}:`, e);
-    }
-
-    const client = new Client({
-      authStrategy: new LocalAuth({
-        clientId: `tenant_${tenantId}`,
-        dataPath: path.join(__dirname, '../../../wa_sessions')
-      }),
-      puppeteer: {
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-extensions'],
-        headless: true
-      }
-    });
-
+    const sessionDir = path.join(__dirname, `../../../wa_sessions/tenant_${tenantId}`);
+    
+    // Create initial session object
     sessions.set(tenantId, {
-      client,
+      client: {} as WASocket, // placeholder
       qrCode: null,
       status: 'connecting',
       retries: 0
     });
 
-    const sessionData = sessions.get(tenantId)!;
+    const startSock = async () => {
+      const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+      
+      const sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: false,
+        logger: pino({ level: 'silent' }), // Suppress baileys logs unless needed
+        browser: ['Lark Laundry', 'Chrome', '1.0.0']
+      });
 
-    client.on('qr', async (qr) => {
-      console.log(`[WA] QR Code received for tenant ${tenantId}`);
-      // Convert QR to Base64 Data URL
-      try {
-        const qrDataUrl = await qrcode.toDataURL(qr, { errorCorrectionLevel: 'M', margin: 4 });
-        sessionData.qrCode = qrDataUrl;
-        sessionData.status = 'disconnected'; // Waiting for scan
-      } catch (error) {
-        console.error(`[WA] Error generating QR data URL for tenant ${tenantId}:`, error);
+      // Update the session client
+      if (sessions.has(tenantId)) {
+        sessions.get(tenantId)!.client = sock;
       }
-    });
 
-    client.on('ready', () => {
-      console.log(`[WA] Client ready for tenant ${tenantId}`);
-      sessionData.status = 'connected';
-      sessionData.qrCode = null; // Hapus QR setelah sukses
-    });
+      sock.ev.on('creds.update', saveCreds);
 
-    client.on('authenticated', () => {
-      console.log(`[WA] Client authenticated for tenant ${tenantId}`);
-    });
+      sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        const sessionData = sessions.get(tenantId);
+        
+        if (!sessionData) return; // Session was likely deleted/logged out
 
-    client.on('auth_failure', (msg) => {
-      console.error(`[WA] Authentication failure for tenant ${tenantId}:`, msg);
-      sessionData.status = 'disconnected';
-    });
+        if (qr) {
+          console.log(`[WA] QR Code received for tenant ${tenantId}`);
+          try {
+            const qrDataUrl = await qrcode.toDataURL(qr, { errorCorrectionLevel: 'M', margin: 4 });
+            sessionData.qrCode = qrDataUrl;
+            sessionData.status = 'disconnected'; // Waiting for scan
+          } catch (error) {
+            console.error(`[WA] Error generating QR data URL for tenant ${tenantId}:`, error);
+          }
+        }
 
-    client.on('disconnected', (reason) => {
-      console.log(`[WA] Client disconnected for tenant ${tenantId}:`, reason);
-      sessionData.status = 'disconnected';
-      sessionData.qrCode = null;
-    });
+        if (connection === 'close') {
+          const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+          console.log(`[WA] Connection closed for tenant ${tenantId}. Reconnecting: ${shouldReconnect}`);
+          
+          sessionData.status = 'disconnected';
+          sessionData.qrCode = null;
 
-    try {
-      await client.initialize();
-    } catch (error) {
-      console.error(`[WA] Failed to initialize client for tenant ${tenantId}:`, error);
-      sessionData.status = 'disconnected';
-    }
+          if (shouldReconnect) {
+            // Wait a bit before reconnecting
+            setTimeout(startSock, 2000);
+          } else {
+            console.log(`[WA] Tenant ${tenantId} logged out manually.`);
+            // Clean up session directory if logged out
+            if (fs.existsSync(sessionDir)) {
+                fs.rmSync(sessionDir, { recursive: true, force: true });
+            }
+          }
+        } else if (connection === 'open') {
+          console.log(`[WA] Client connected for tenant ${tenantId}`);
+          sessionData.status = 'connected';
+          sessionData.qrCode = null;
+          sessionData.retries = 0;
+        }
+      });
+    };
+
+    startSock();
   }
 
   /**
@@ -122,15 +122,14 @@ export class WhatsAppService {
     const session = sessions.get(tenantId);
     if (session) {
       try {
-        await session.client.destroy();
+        session.client.logout(); // Baileys specific logout
       } catch (error) {
-        console.error(`[WA] Error destroying client for tenant ${tenantId}:`, error);
+        console.error(`[WA] Error logging out client for tenant ${tenantId}:`, error);
       }
       sessions.delete(tenantId);
     }
     
-    // Opsional: Hapus folder sesi LocalAuth secara manual jika diperlukan.
-    const sessionPath = path.join(__dirname, `../../../wa_sessions/session-tenant_${tenantId}`);
+    const sessionPath = path.join(__dirname, `../../../wa_sessions/tenant_${tenantId}`);
     if (fs.existsSync(sessionPath)) {
       fs.rmSync(sessionPath, { recursive: true, force: true });
     }
@@ -148,20 +147,38 @@ export class WhatsAppService {
     }
 
     try {
-      // Format nomor telepon ke format WA ID
+      // Pastikan format nomor benar (buang '0' atau '+' di awal, pakai kode negara)
       let formattedNumber = to.replace(/\D/g, '');
       if (formattedNumber.startsWith('0')) {
         formattedNumber = '62' + formattedNumber.substring(1);
       }
-      const chatId = `${formattedNumber}@c.us`;
+      
+      // Baileys format is number@s.whatsapp.net
+      const jid = `${formattedNumber}@s.whatsapp.net`;
+      
+      const onWhatsAppResults = await session.client.onWhatsApp(jid);
+      if (!onWhatsAppResults || onWhatsAppResults.length === 0 || !onWhatsAppResults[0].exists) {
+         console.log(`[WA] Number ${jid} is not registered on WhatsApp.`);
+         return false;
+      }
+      
+      const result = onWhatsAppResults[0];
 
-      await session.client.sendMessage(chatId, message);
-      console.log(`[WA] Message sent successfully to ${to} for tenant ${tenantId}`);
+      await session.client.sendMessage(result.jid, { text: message });
+      console.log(`[WA] Message sent to ${formattedNumber} for tenant ${tenantId}`);
       return true;
     } catch (error) {
-      console.error(`[WA] Error sending message to ${to} for tenant ${tenantId}:`, error);
+      console.error(`[WA] Error sending message for tenant ${tenantId}:`, error);
       return false;
     }
+  }
+
+  /**
+   * Cek apakah client siap
+   */
+  static isReady(tenantId: number): boolean {
+    const session = sessions.get(tenantId);
+    return session?.status === 'connected';
   }
 }
 
