@@ -111,12 +111,14 @@ app.use(maintenanceMiddleware);
 app.use(setCsrfCookie);
 
 import sysAdminRoutes from './routes/sysAdminRoutes';
+import whatsappRoutes from './routes/whatsappRoutes';
 
 // Routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/sync', verifyCsrf, syncRoutes);
 app.use('/api/v1/payments', paymentRoutes);
 app.use('/api/v1/sys-admin', verifyCsrf, sysAdminRoutes);
+app.use('/api/v1/whatsapp', verifyCsrf, whatsappRoutes);
 
 // Public endpoints
 app.use('/api/v1/public/track', trackingRoutes);

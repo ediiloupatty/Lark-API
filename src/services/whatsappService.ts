@@ -1,97 +1,171 @@
-/**
- * Lark Laundry – WhatsApp Notification Service (via Fonnte API)
- *
- * Digunakan untuk mengirim pesan WA otomatis ke pelanggan
- * saat pesanan dibuat atau status berubah.
- *
- * Token Fonnte disimpan per-tenant di tabel tenant_settings
- * dengan key 'whatsapp_config' → { token: string, enabled: boolean }
- *
- * Referensi API: https://fonnte.com/docs/
- */
+import { Client, LocalAuth } from 'whatsapp-web.js';
+import * as qrcode from 'qrcode';
+import fs from 'fs';
+import path from 'path';
 
-import { db } from '../config/db';
-
-const FONNTE_API_URL = 'https://api.fonnte.com/send';
-
-interface SendWAOptions {
-  tenantId: number;
-  phone: string;       // nomor WA pelanggan (format: 08xx atau 628xx)
-  message: string;     // teks pesan
+interface WASession {
+  client: Client;
+  qrCode: string | null;
+  status: 'disconnected' | 'connecting' | 'connected';
+  retries: number;
 }
 
-/**
- * Ambil konfigurasi WA dari tenant_settings.
- * Return null jika belum dikonfigurasi atau disabled.
- */
-async function getWAConfig(tenantId: number): Promise<{ token: string; enabled: boolean } | null> {
-  try {
-    const row = await db.tenant_settings.findFirst({
-      where: { tenant_id: tenantId, setting_key: 'whatsapp_config' },
-      select: { setting_value: true },
+const sessions = new Map<number, WASession>();
+
+export class WhatsAppService {
+  /**
+   * Menginisialisasi Client WA untuk suatu tenant (toko).
+   * @param tenantId ID Toko
+   */
+  static async initialize(tenantId: number): Promise<void> {
+    if (sessions.has(tenantId)) {
+      const session = sessions.get(tenantId)!;
+      if (session.status !== 'disconnected') {
+        return; // Sudah inisialisasi atau sedang terhubung
+      }
+    }
+
+    console.log(`[WA] Initializing client for tenant ${tenantId}...`);
+
+    const client = new Client({
+      authStrategy: new LocalAuth({
+        clientId: `tenant_${tenantId}`,
+        dataPath: path.join(__dirname, '../../../wa_sessions')
+      }),
+      puppeteer: {
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-extensions'],
+        headless: true
+      }
     });
 
-    if (!row?.setting_value) return null;
+    sessions.set(tenantId, {
+      client,
+      qrCode: null,
+      status: 'connecting',
+      retries: 0
+    });
 
-    const cfg = typeof row.setting_value === 'string'
-      ? JSON.parse(row.setting_value)
-      : row.setting_value as any;
+    const sessionData = sessions.get(tenantId)!;
 
-    if (!cfg?.token || !cfg?.enabled) return null;
-    return { token: String(cfg.token), enabled: Boolean(cfg.enabled) };
-  } catch {
-    return null;
+    client.on('qr', async (qr) => {
+      console.log(`[WA] QR Code received for tenant ${tenantId}`);
+      // Convert QR to Base64 Data URL
+      try {
+        const qrDataUrl = await qrcode.toDataURL(qr, { errorCorrectionLevel: 'M', margin: 4 });
+        sessionData.qrCode = qrDataUrl;
+        sessionData.status = 'disconnected'; // Waiting for scan
+      } catch (error) {
+        console.error(`[WA] Error generating QR data URL for tenant ${tenantId}:`, error);
+      }
+    });
+
+    client.on('ready', () => {
+      console.log(`[WA] Client ready for tenant ${tenantId}`);
+      sessionData.status = 'connected';
+      sessionData.qrCode = null; // Hapus QR setelah sukses
+    });
+
+    client.on('authenticated', () => {
+      console.log(`[WA] Client authenticated for tenant ${tenantId}`);
+    });
+
+    client.on('auth_failure', (msg) => {
+      console.error(`[WA] Authentication failure for tenant ${tenantId}:`, msg);
+      sessionData.status = 'disconnected';
+    });
+
+    client.on('disconnected', (reason) => {
+      console.log(`[WA] Client disconnected for tenant ${tenantId}:`, reason);
+      sessionData.status = 'disconnected';
+      sessionData.qrCode = null;
+    });
+
+    try {
+      await client.initialize();
+    } catch (error) {
+      console.error(`[WA] Failed to initialize client for tenant ${tenantId}:`, error);
+      sessionData.status = 'disconnected';
+    }
+  }
+
+  /**
+   * Mendapatkan status saat ini (dan QR jika ada).
+   */
+  static getStatus(tenantId: number) {
+    const session = sessions.get(tenantId);
+    if (!session) {
+      return { status: 'disconnected', qrCode: null };
+    }
+    return {
+      status: session.status,
+      qrCode: session.qrCode
+    };
+  }
+
+  /**
+   * Memutuskan sesi dan menghapus folder LocalAuth untuk tenant.
+   */
+  static async logout(tenantId: number): Promise<void> {
+    const session = sessions.get(tenantId);
+    if (session) {
+      try {
+        await session.client.destroy();
+      } catch (error) {
+        console.error(`[WA] Error destroying client for tenant ${tenantId}:`, error);
+      }
+      sessions.delete(tenantId);
+    }
+    
+    // Opsional: Hapus folder sesi LocalAuth secara manual jika diperlukan.
+    const sessionPath = path.join(__dirname, `../../../wa_sessions/session-tenant_${tenantId}`);
+    if (fs.existsSync(sessionPath)) {
+      fs.rmSync(sessionPath, { recursive: true, force: true });
+    }
+    console.log(`[WA] Logged out tenant ${tenantId}`);
+  }
+
+  /**
+   * Mengirim pesan otomatis
+   */
+  static async sendMessage(tenantId: number, to: string, message: string): Promise<boolean> {
+    const session = sessions.get(tenantId);
+    if (!session || session.status !== 'connected') {
+      console.log(`[WA] Cannot send message. Tenant ${tenantId} is not connected.`);
+      return false;
+    }
+
+    try {
+      // Format nomor telepon ke format WA ID
+      let formattedNumber = to.replace(/\D/g, '');
+      if (formattedNumber.startsWith('0')) {
+        formattedNumber = '62' + formattedNumber.substring(1);
+      }
+      const chatId = `${formattedNumber}@c.us`;
+
+      await session.client.sendMessage(chatId, message);
+      console.log(`[WA] Message sent successfully to ${to} for tenant ${tenantId}`);
+      return true;
+    } catch (error) {
+      console.error(`[WA] Error sending message to ${to} for tenant ${tenantId}:`, error);
+      return false;
+    }
   }
 }
 
-/**
- * Normalisasi nomor HP ke format internasional 628xx
- */
-function normalizePhone(phone: string): string {
-  const cleaned = phone.replace(/\D/g, '');
-  if (cleaned.startsWith('0')) return '62' + cleaned.slice(1);
-  if (cleaned.startsWith('62')) return cleaned;
-  return '62' + cleaned;
+// ── Compatibility layer for existing controllers ──
+
+export interface SendWAOptions {
+  tenantId: number;
+  phone: string;
+  message: string;
 }
 
 /**
- * Kirim WA melalui Fonnte API.
+ * Kirim WA menggunakan WhatsAppService (pengganti Fonnte).
  * Bersifat "fire-and-forget" — tidak akan throw error ke caller.
  */
 export async function sendWhatsApp(opts: SendWAOptions): Promise<void> {
-  const { tenantId, phone, message } = opts;
-
-  if (!phone || phone.trim().length < 9) return; // nomor tidak valid
-
-  const config = await getWAConfig(tenantId);
-  if (!config) return; // WA belum dikonfigurasi atau disabled
-
-  const normalizedPhone = normalizePhone(phone);
-
-  try {
-    const response = await fetch(FONNTE_API_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': config.token,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        target: normalizedPhone,
-        message: message,
-        countryCode: '62',
-      }).toString(),
-    });
-
-    const result = await response.json() as any;
-    if (!result?.status) {
-      console.warn(`[WA Fonnte] Gagal kirim ke ${normalizedPhone}:`, result?.reason);
-    } else {
-      console.info(`[WA Fonnte] Terkirim ke ${normalizedPhone}`);
-    }
-  } catch (err) {
-    // Tidak lempar error — pengiriman WA tidak boleh menggagalkan proses bisnis
-    console.error('[WA Fonnte] Network error:', err);
-  }
+  await WhatsAppService.sendMessage(opts.tenantId, opts.phone, opts.message);
 }
 
 /**
