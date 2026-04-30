@@ -11,7 +11,7 @@ import {
   loginWithMagicToken,
 } from '../controllers/authController';
 import { loginRateLimiter, registerRateLimiter } from '../middlewares/rateLimiter';
-import { authenticateJWT } from '../middlewares/authMiddleware';
+import { authenticateToken } from '../middlewares/authMiddleware';
 
 const router = Router();
 
@@ -30,7 +30,7 @@ router.post('/google',          loginRateLimiter, googleLogin);
 router.post('/logout',          logoutAdmin);
 
 // Magic Link
-router.post('/magic-link-token', authenticateJWT, generateMagicLinkToken);
+router.post('/magic-link-token', authenticateToken, generateMagicLinkToken);
 router.post('/magic-login',      loginRateLimiter, loginWithMagicToken);
 
 export default router;
