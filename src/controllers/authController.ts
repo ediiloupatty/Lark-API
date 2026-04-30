@@ -924,7 +924,10 @@ export const loginWithMagicToken = async (req: Request, res: Response) => {
     }
 
     // Security check: Make sure token_version hasn't changed (owner didn't force logout)
-    if (user.token_version !== decoded.token_version) {
+    const dbVersion = user.token_version ?? 0;
+    const tokenVersion = decoded.token_version ?? 0;
+    
+    if (tokenVersion < dbVersion) {
        return res.status(401).json({ status: 'error', success: false, message: 'Sesi telah kadaluarsa. Silakan login kembali di aplikasi.' });
     }
 
