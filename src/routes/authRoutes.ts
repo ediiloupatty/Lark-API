@@ -7,8 +7,11 @@ import {
   resetPassword,
   googleLogin,
   logoutAdmin,
+  generateMagicLinkToken,
+  loginWithMagicToken,
 } from '../controllers/authController';
 import { loginRateLimiter, registerRateLimiter } from '../middlewares/rateLimiter';
+import { authenticateJWT } from '../middlewares/authMiddleware';
 
 const router = Router();
 
@@ -25,5 +28,9 @@ router.post('/reset-password',  resetPassword);
 router.post('/google',          loginRateLimiter, googleLogin);
 // Logout: hapus httpOnly cookie dari browser (mobile cukup hapus token lokal mereka)
 router.post('/logout',          logoutAdmin);
+
+// Magic Link
+router.post('/magic-link-token', authenticateJWT, generateMagicLinkToken);
+router.post('/magic-login',      loginRateLimiter, loginWithMagicToken);
 
 export default router;
