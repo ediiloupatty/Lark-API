@@ -44,7 +44,7 @@ export class WhatsAppService {
       const sock = makeWASocket({
         auth: state,
         printQRInTerminal: false,
-        logger: pino({ level: 'silent' }), // Suppress baileys logs unless needed
+        logger: pino({ level: 'warn' }), // Enable logs to debug connection issue
         browser: ['Lark Laundry', 'Chrome', '1.0.0']
       });
 
@@ -74,7 +74,7 @@ export class WhatsAppService {
 
         if (connection === 'close') {
           const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-          console.log(`[WA] Connection closed for tenant ${tenantId}. Reconnecting: ${shouldReconnect}`);
+          console.log(`[WA] Connection closed for tenant ${tenantId}. Reconnecting: ${shouldReconnect}. Reason:`, lastDisconnect?.error);
           
           sessionData.status = 'disconnected';
           sessionData.qrCode = null;
