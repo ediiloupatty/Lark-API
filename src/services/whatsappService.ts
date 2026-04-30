@@ -1,4 +1,4 @@
-import makeWASocket, { useMultiFileAuthState, DisconnectReason, WASocket } from '@whiskeysockets/baileys';
+import makeWASocket, { useMultiFileAuthState, DisconnectReason, WASocket, fetchLatestBaileysVersion, Browsers } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import * as qrcode from 'qrcode';
 import fs from 'fs';
@@ -41,11 +41,16 @@ export class WhatsAppService {
     const startSock = async () => {
       const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
       
+      const { version, isLatest } = await fetchLatestBaileysVersion();
+      console.log(`[WA] Using WA v${version.join('.')}, isLatest: ${isLatest}`);
+      
       const sock = makeWASocket({
+        version,
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'warn' }), // Enable logs to debug connection issue
-        // Omit browser config to avoid 405 Connection Failure
+        browser: Browsers.macOS('Desktop'),
+        syncFullHistory: false
       });
 
       // Update the session client
