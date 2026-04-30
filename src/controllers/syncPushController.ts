@@ -159,6 +159,60 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
              }
          }
          
+         // Insert Products (Opsional — barang fisik add-on)
+         const productItems = o.products;
+         const orderProductsPayload: any[] = [];
+         if (Array.isArray(productItems) && productItems.length > 0) {
+           for (const p of productItems) {
+             const pid = parseInt(p.product_id);
+             const qty = parseInt(p.qty || '1');
+             if (pid > 0 && qty > 0) {
+               const productRow = await tx.products.findFirst({
+                 where: { id: pid, tenant_id: tenantId, is_active: true },
+                 select: { harga: true, lacak_stok: true, stok: true, nama: true }
+               });
+               if (productRow) {
+                 // Cek stok jika lacak_stok aktif
+                 if (productRow.lacak_stok && productRow.stok < qty) {
+                   throw new Error(`Stok "${productRow.nama}" tidak cukup (sisa: ${productRow.stok}).`);
+                 }
+                 const prodPrice = Number(productRow.harga);
+                 const prodSubtotal = qty * prodPrice;
+                 serverCalculatedTotal += prodSubtotal;
+
+                 orderProductsPayload.push({
+                   product_id: pid,
+                   jumlah: qty,
+                   harga: prodPrice,
+                   subtotal: prodSubtotal
+                 });
+
+                 // Kurangi stok otomatis jika lacak_stok aktif
+                 if (productRow.lacak_stok) {
+                   await tx.products.update({
+                     where: { id: pid },
+                     data: { stok: { decrement: qty }, updated_at: new Date() }
+                   });
+                 }
+               }
+             }
+           }
+         }
+
+         // Parfum (opsional)
+         const parfumId = o.parfum_id ? parseInt(o.parfum_id) : null;
+         let parfumHarga = 0;
+         if (parfumId) {
+           const parfumRow = await tx.parfums.findFirst({
+             where: { id: parfumId, tenant_id: tenantId, is_active: true },
+             select: { harga_tambahan: true },
+           });
+           if (parfumRow) {
+             parfumHarga = Number(parfumRow.harga_tambahan || 0);
+             serverCalculatedTotal += parfumHarga;
+           }
+         }
+
          const finalTotalAmount = serverCalculatedTotal > 0 ? serverCalculatedTotal : totalAmount;
 
          // BUG-7 FIX: Support all valid payment methods including QRIS
@@ -172,6 +226,8 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
                customer_id: customerId,
                tracking_code: orderNumber,
                total_harga: finalTotalAmount,
+               parfum_id: parfumId,
+               parfum_harga: parfumHarga > 0 ? parfumHarga : null,
                tgl_order: new Date(), // BUG-11 FIX: Always set order date
                metode_antar: metodeAntar === 'jemput' ? 'jemput' : 'antar_sendiri',
                outlet_id: safeOutletId,
@@ -189,7 +245,12 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
                },
                order_details: {
                   create: orderDetailsPayload
-               }
+               },
+               ...(orderProductsPayload.length > 0 ? {
+                 order_products: {
+                   create: orderProductsPayload
+                 }
+               } : {})
             }
          });
 
