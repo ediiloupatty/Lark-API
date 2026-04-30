@@ -36,12 +36,14 @@ export const getOrders = async (req: AuthRequest, res: Response) => {
              c.nama as nama_pelanggan, c.no_hp, c.alamat as alamat_pelanggan,
              p.status_pembayaran, p.tgl_pembayaran, p.konfirmasi_pada, p.jumlah_bayar, p.metode_pembayaran as metode_bayar,
              ot.nama as outlet_nama, ot.alamat as outlet_alamat, ot.phone as outlet_phone,
-             u.nama as user_nama
+             u.nama as user_nama,
+             pf.nama as parfum_nama
       FROM orders o
       JOIN customers c ON o.customer_id = c.id
       LEFT JOIN payments p ON o.id = p.order_id
       LEFT JOIN outlets ot ON o.outlet_id = ot.id
       LEFT JOIN users u ON o.user_id = u.id
+      LEFT JOIN parfums pf ON o.parfum_id = pf.id
       WHERE o.tenant_id = $1
     `;
     const params: any[] = [tenantId];
@@ -81,12 +83,37 @@ export const getOrders = async (req: AuthRequest, res: Response) => {
          subtotal: Number(it.subtotal || 0),
          harga_per_kg: Number(it.harga_per_kg || 0)
       }));
+
+      let products: any[] = [];
+      try {
+        products = await db.$queryRawUnsafe<any[]>(
+          `SELECT op.*, pr.nama as nama_item, pr.harga as harga_per_kg, NULL as paket_nama
+           FROM order_products op
+           JOIN products pr ON op.product_id = pr.id
+           WHERE op.order_id = $1`,
+          order.id
+        );
+      } catch (e) {
+        console.error('[GetOrders] Failed to fetch products:', e);
+      }
+
+      const formattedProducts = products.map((p: any) => ({
+         ...p,
+         service_id: null,
+         harga: Number(p.harga || 0),
+         subtotal: Number(p.subtotal || 0),
+         harga_per_kg: Number(p.harga_per_kg || 0),
+         berat: 0,
+         satuan: 'pcs'
+      }));
+
+      const finalItems = [...formattedItems, ...formattedProducts];
       
       const finalOrder = {
         ...order,
         total_harga: Number(order.total_harga || 0),
         server_version: Number(order.server_version || 0),
-        items: formattedItems,
+        items: finalItems,
         layanan_nama: formattedItems.length > 0 ? formattedItems[0].nama_item : null,
         harga_per_kg: formattedItems.length > 0 ? formattedItems[0].harga_per_kg : null,
         berat: formattedItems.length > 0 ? formattedItems[0].berat : null,
@@ -168,6 +195,31 @@ export const getOrders = async (req: AuthRequest, res: Response) => {
             harga_per_kg: Number(item.harga_per_kg || 0)
           });
         }
+      }
+      
+      // Fetch Extra Products and append to itemsMap
+      try {
+        const products = await db.$queryRawUnsafe<any[]>(
+          `SELECT op.*, pr.nama as nama_item, pr.harga as harga_per_kg, NULL as paket_nama
+           FROM order_products op
+           JOIN products pr ON op.product_id = pr.id
+           WHERE op.order_id = ANY($1::int[])`,
+          orderIds
+        );
+        for (const p of products) {
+          if (!itemsMap[p.order_id]) itemsMap[p.order_id] = [];
+          itemsMap[p.order_id].push({
+            ...p,
+            service_id: null,
+            harga: Number(p.harga || 0),
+            subtotal: Number(p.subtotal || 0),
+            harga_per_kg: Number(p.harga_per_kg || 0),
+            berat: 0,
+            satuan: 'pcs'
+          });
+        }
+      } catch (e) {
+         console.error('[GetOrders] Failed to fetch products list:', e);
       }
     }
 
@@ -733,10 +785,11 @@ export const payOrder = async (req: AuthRequest, res: Response) => {
       SELECT o.*, c.nama as nama_pelanggan, c.no_hp,
              p.status_pembayaran, p.tgl_pembayaran, p.jumlah_bayar,
              p.metode_pembayaran as metode_bayar, p.konfirmasi_pada,
-             p.bukti_pembayaran
+             p.bukti_pembayaran, pf.nama as parfum_nama
       FROM orders o
       JOIN customers c ON o.customer_id = c.id
       LEFT JOIN payments p ON o.id = p.order_id
+      LEFT JOIN parfums pf ON o.parfum_id = pf.id
       WHERE o.id = $1
     `, parseInt(order_id));
 
