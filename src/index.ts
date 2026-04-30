@@ -76,24 +76,7 @@ async function bootstrap() {
         `);
         console.log('[Bootstrap] ✅ Kolom token_version sudah siap.');
 
-        await client.query(`
-          CREATE TABLE IF NOT EXISTS blog_articles (
-            id          SERIAL PRIMARY KEY,
-            slug        VARCHAR(255) UNIQUE NOT NULL,
-            title       VARCHAR(500) NOT NULL,
-            excerpt     TEXT NOT NULL,
-            content     TEXT NOT NULL,
-            read_time   VARCHAR(20) DEFAULT '5 min',
-            category    VARCHAR(50) DEFAULT 'bisnis',
-            status      VARCHAR(20) DEFAULT 'published',
-            source_urls TEXT[] DEFAULT '{}',
-            created_at  TIMESTAMPTZ DEFAULT NOW(),
-            updated_at  TIMESTAMPTZ DEFAULT NOW()
-          )
-        `);
-        await client.query(`CREATE INDEX IF NOT EXISTS idx_blog_articles_status ON blog_articles(status)`);
-        await client.query(`CREATE INDEX IF NOT EXISTS idx_blog_articles_slug ON blog_articles(slug)`);
-        console.log('[Bootstrap] ✅ Tabel blog_articles sudah siap.');
+
       } catch (e: any) {
         if (e.code !== '42P07') {
           console.warn('[Bootstrap] DDL warning:', e.message);
