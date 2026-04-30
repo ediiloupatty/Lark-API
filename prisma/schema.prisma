@@ -171,24 +171,25 @@ model orders {
 }
 
 model outlets {
-  id            Int             @id @default(autoincrement())
-  tenant_id     Int
-  nama          String          @db.VarChar(100)
-  alamat        String?
-  phone         String?         @db.VarChar(20)
-  jam_buka      DateTime?       @default(dbgenerated("'08:00:00'::time without time zone")) @db.Time(6)
-  jam_tutup     DateTime?       @default(dbgenerated("'20:00:00'::time without time zone")) @db.Time(6)
-  is_active     Boolean?        @default(true)
-  created_at    DateTime?       @default(now()) @db.Timestamp(6)
-  updated_at    DateTime?       @default(now()) @db.Timestamp(6)
-  audit_logs    audit_logs[]
-  inventory     inventory[]
-  orders        orders[]
-  tenants       tenants         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  paket_laundry paket_laundry[]
-  payments      payments[]
-  services      services[]
-  users         users[]
+  id             Int             @id @default(autoincrement())
+  tenant_id      Int
+  nama           String          @db.VarChar(100)
+  alamat         String?
+  phone          String?         @db.VarChar(20)
+  jam_buka       DateTime?       @default(dbgenerated("'08:00:00'::time without time zone")) @db.Time(6)
+  jam_tutup      DateTime?       @default(dbgenerated("'20:00:00'::time without time zone")) @db.Time(6)
+  is_active      Boolean?        @default(true)
+  created_at     DateTime?       @default(now()) @db.Timestamp(6)
+  updated_at     DateTime?       @default(now()) @db.Timestamp(6)
+  server_version BigInt?
+  audit_logs     audit_logs[]
+  inventory      inventory[]
+  orders         orders[]
+  tenants        tenants         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  paket_laundry  paket_laundry[]
+  payments       payments[]
+  services       services[]
+  users          users[]
 }
 
 model paket_laundry {
