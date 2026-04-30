@@ -27,6 +27,19 @@ export class WhatsAppService {
 
     console.log(`[WA] Initializing client for tenant ${tenantId}...`);
 
+    // Hapus SingletonLock jika tertinggal akibat crash sebelumnya
+    const sessionDir = path.join(__dirname, `../../../wa_sessions/session-tenant_${tenantId}`);
+    try {
+      if (fs.existsSync(path.join(sessionDir, 'SingletonLock'))) {
+        fs.unlinkSync(path.join(sessionDir, 'SingletonLock'));
+      }
+      if (fs.existsSync(path.join(sessionDir, 'SingletonCookie'))) {
+        fs.unlinkSync(path.join(sessionDir, 'SingletonCookie'));
+      }
+    } catch (e) {
+      console.warn(`[WA] Could not remove lock files for tenant ${tenantId}:`, e);
+    }
+
     const client = new Client({
       authStrategy: new LocalAuth({
         clientId: `tenant_${tenantId}`,
