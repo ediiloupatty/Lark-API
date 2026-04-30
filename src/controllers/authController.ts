@@ -839,3 +839,145 @@ export const googleLogin = async (req: Request, res: Response) => {
     });
   }
 };
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/auth/magic-link-token
+// Endpoint untuk mobile app untuk generate token akses sementara (magic link)
+// ---------------------------------------------------------------------------
+export const generateMagicLinkToken = async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    if (!user || !user.user_id) {
+      return res.status(401).json({ status: 'error', success: false, message: 'Unauthorized' });
+    }
+
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) throw new Error('JWT_SECRET environment variable is not configured!');
+
+    // Sign a short-lived token (2 minutes) for magic login
+    const magicToken = jwt.sign(
+      {
+        user_id: user.user_id,
+        role: user.role,
+        tenant_id: user.tenant_id,
+        outlet_id: user.outlet_id,
+        token_version: user.token_version ?? 0,
+        is_magic: true // Important identifier
+      },
+      jwtSecret,
+      { expiresIn: '2m' }
+    );
+
+    return res.status(200).json({
+      status: 'success',
+      success: true,
+      data: { token: magicToken }
+    });
+  } catch (err: any) {
+    console.error('[AuthController generateMagicLinkToken]', err);
+    return res.status(500).json({ status: 'error', success: false, message: 'Terjadi kesalahan pada server.' });
+  }
+};
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/auth/magic-login
+// Endpoint public untuk verifikasi magic token dan set cookie session untuk web
+// ---------------------------------------------------------------------------
+export const loginWithMagicToken = async (req: Request, res: Response) => {
+  const ipAddress = req.ip || req.socket?.remoteAddress || '0.0.0.0';
+  const userAgent = req.headers['user-agent'] || 'unknown';
+
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ status: 'error', success: false, message: 'Token tidak ditemukan.' });
+    }
+
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) throw new Error('JWT_SECRET environment variable is not configured!');
+
+    let decoded: any;
+    try {
+      decoded = jwt.verify(token, jwtSecret);
+    } catch (err) {
+      return res.status(401).json({ status: 'error', success: false, message: 'Token tidak valid atau sudah kadaluarsa.' });
+    }
+
+    // Verify this is specifically a magic token
+    if (!decoded.is_magic) {
+      return res.status(401).json({ status: 'error', success: false, message: 'Tipe token tidak valid.' });
+    }
+
+    // Fetch the user to ensure they are still active
+    const user = await db.users.findUnique({
+      where: { id: decoded.user_id },
+      include: { outlets: true }
+    });
+
+    if (!user || user.deleted_at !== null) {
+      return res.status(401).json({ status: 'error', success: false, message: 'Akun tidak ditemukan.' });
+    }
+
+    if (!user.is_active) {
+      return res.status(403).json({ status: 'error', success: false, message: 'Akun Anda telah dinonaktifkan.' });
+    }
+
+    // Security check: Make sure token_version hasn't changed (owner didn't force logout)
+    if (user.token_version !== decoded.token_version) {
+       return res.status(401).json({ status: 'error', success: false, message: 'Sesi telah kadaluarsa. Silakan login kembali di aplikasi.' });
+    }
+
+    const role = normalizeAppRole(user.role);
+
+    // Write audit log
+    await writeAuditLog(db, {
+      tenant_id: user.tenant_id,
+      outlet_id: user.outlet_id,
+      actor_user_id: user.id,
+      entity_type: 'user',
+      entity_id: user.id,
+      action: 'login_magic_success_web',
+      metadata: { ip: ipAddress, user_agent: userAgent },
+    });
+
+    // Issue standard 24h JWT
+    const newToken = jwt.sign(
+      {
+        user_id: user.id,
+        username: user.username,
+        role: role,
+        tenant_id: user.tenant_id,
+        outlet_id: user.outlet_id,
+        token_version: user.token_version ?? 0,
+      },
+      jwtSecret,
+      { expiresIn: '24h' }
+    );
+
+    // Set httpOnly cookie untuk Web browser
+    setAuthCookie(res, newToken);
+
+    return res.status(200).json({
+      status: 'success',
+      success: true,
+      message: 'Login berhasil via Magic Link',
+      data: {
+        user: {
+          id: user.id,
+          username: user.username,
+          nama: user.nama || user.username,
+          role: role,
+          tenant_id: user.tenant_id,
+          outlet_id: user.outlet_id,
+          outlet_nama: user.outlets?.nama || 'Pusat',
+          permissions: typeof user.permissions === 'string' ? JSON.parse(user.permissions) : (user.permissions || {})
+        },
+      },
+    });
+
+  } catch (err: any) {
+    console.error('[AuthController loginWithMagicToken]', err);
+    return res.status(500).json({ status: 'error', success: false, message: 'Terjadi kesalahan pada server.' });
+  }
+};
