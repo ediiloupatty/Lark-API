@@ -1,6 +1,6 @@
 generator client {
   provider        = "prisma-client-js"
-  previewFeatures = ["driverAdapters", "partialIndexes"]
+  previewFeatures = ["partialIndexes"]
 }
 
 datasource db {
@@ -44,18 +44,18 @@ model customers {
 }
 
 model expenses {
-  id           Int       @id @default(autoincrement())
-  tenant_id    Int
-  outlet_id    Int?
-  kategori     String    @db.VarChar(100)
-  deskripsi    String?
-  jumlah       Decimal   @default(0) @db.Decimal(15, 2)
-  metode_bayar String?   @default("cash") @db.VarChar(50)
-  tanggal      DateTime  @db.Date
-  created_by   Int?
-  created_at   DateTime? @default(now()) @db.Timestamp(6)
-  updated_at   DateTime? @default(now()) @db.Timestamp(6)
-  bukti_pengeluaran String? @db.VarChar(255)
+  id                Int       @id @default(autoincrement())
+  tenant_id         Int
+  outlet_id         Int?
+  kategori          String    @db.VarChar(100)
+  deskripsi         String?
+  jumlah            Decimal   @default(0) @db.Decimal(15, 2)
+  metode_bayar      String?   @default("cash") @db.VarChar(50)
+  tanggal           DateTime  @db.Date
+  created_by        Int?
+  created_at        DateTime? @default(now()) @db.Timestamp(6)
+  updated_at        DateTime? @default(now()) @db.Timestamp(6)
+  bukti_pengeluaran String?   @db.VarChar(255)
 }
 
 model inventory {
@@ -107,62 +107,62 @@ model device_tokens {
 }
 
 model order_details {
-  id              Int       @id @default(autoincrement())
-  order_id        Int
-  service_id      Int?
-  jenis_pakaian   String?   @db.VarChar(100)
-  jumlah          Int?
-  berat           Decimal?  @db.Decimal(10, 2)
-  harga           Decimal?  @db.Decimal(10, 2)
-  subtotal        Decimal?  @db.Decimal(10, 2)
-  satuan          String?   @default("kg") @db.VarChar(20)
-  durasi_jam      Int?
-  durasi_label    String?   @db.VarChar(50)
-  harga_modifier  Decimal?  @default(0) @db.Decimal(10, 2)
-  created_at      DateTime? @default(now()) @db.Timestamp(6)
-  orders          orders    @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  services        services? @relation(fields: [service_id], references: [id], onUpdate: NoAction)
+  id             Int       @id @default(autoincrement())
+  order_id       Int
+  service_id     Int?
+  jenis_pakaian  String?   @db.VarChar(100)
+  jumlah         Int?
+  berat          Decimal?  @db.Decimal(10, 2)
+  harga          Decimal?  @db.Decimal(10, 2)
+  subtotal       Decimal?  @db.Decimal(10, 2)
+  satuan         String?   @default("kg") @db.VarChar(20)
+  durasi_jam     Int?
+  durasi_label   String?   @db.VarChar(50)
+  harga_modifier Decimal?  @default(0) @db.Decimal(10, 2)
+  created_at     DateTime? @default(now()) @db.Timestamp(6)
+  orders         orders    @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  services       services? @relation(fields: [service_id], references: [id], onUpdate: NoAction)
 }
 
 model orders {
-  id               Int             @id @default(autoincrement())
-  tenant_id        Int
-  customer_id      Int
-  kode_pesanan     String?         @unique @db.VarChar(25)
-  total_harga      Decimal?        @db.Decimal(10, 2)
-  tgl_order        DateTime?       @default(now()) @db.Timestamp(6)
-  tgl_diproses     DateTime?       @db.Timestamp(6)
-  tgl_siap         DateTime?       @db.Timestamp(6)
-  tgl_selesai      DateTime?       @db.Timestamp(6)
-  status           order_status?   @default(menunggu_konfirmasi)
-  metode_antar     metode_antar
-  outlet_id        Int?
-  user_id          Int?
-  paket_id         Int?
-  alamat_jemput    String?
-  catatan          String?
-  promo_code       String?         @db.VarChar(50)
-  discount_amount  Decimal?        @default(0) @db.Decimal(10, 2)
-  ongkos_kirim     Decimal?        @default(0) @db.Decimal(10, 2)
-  tracking_code    String?         @unique @db.VarChar(20)
-  estimasi_tanggal DateTime?       @db.Date
-  estimasi_waktu   String?         @db.VarChar(30)
-  created_at       DateTime?       @default(now()) @db.Timestamp(6)
-  updated_at       DateTime?       @default(now()) @db.Timestamp(6)
-  client_id        String?         @db.VarChar(64)
-  server_version   BigInt?
-  parfum_id        Int?
-  parfum_harga     Decimal?        @default(0) @db.Decimal(10, 2)
-  notifications      notifications[]
-  order_details       order_details[]
-  order_products      order_products[]
-  order_status_logs   order_status_logs[]
-  customers        customers       @relation(fields: [customer_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  outlets          outlets?        @relation(fields: [outlet_id], references: [id], onUpdate: NoAction)
-  tenants          tenants         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users            users?          @relation(fields: [user_id], references: [id], onUpdate: NoAction)
-  parfums          parfums?        @relation(fields: [parfum_id], references: [id], onUpdate: NoAction)
-  payments         payments[]
+  id                Int                 @id @default(autoincrement())
+  tenant_id         Int
+  customer_id       Int
+  kode_pesanan      String?             @unique @db.VarChar(25)
+  total_harga       Decimal?            @db.Decimal(10, 2)
+  tgl_order         DateTime?           @default(now()) @db.Timestamp(6)
+  tgl_diproses      DateTime?           @db.Timestamp(6)
+  tgl_siap          DateTime?           @db.Timestamp(6)
+  tgl_selesai       DateTime?           @db.Timestamp(6)
+  status            order_status?       @default(menunggu_konfirmasi)
+  metode_antar      metode_antar
+  outlet_id         Int?
+  user_id           Int?
+  paket_id          Int?
+  alamat_jemput     String?
+  catatan           String?
+  promo_code        String?             @db.VarChar(50)
+  discount_amount   Decimal?            @default(0) @db.Decimal(10, 2)
+  ongkos_kirim      Decimal?            @default(0) @db.Decimal(10, 2)
+  tracking_code     String?             @unique @db.VarChar(20)
+  estimasi_tanggal  DateTime?           @db.Date
+  estimasi_waktu    String?             @db.VarChar(30)
+  created_at        DateTime?           @default(now()) @db.Timestamp(6)
+  updated_at        DateTime?           @default(now()) @db.Timestamp(6)
+  client_id         String?             @db.VarChar(64)
+  server_version    BigInt?
+  parfum_id         Int?
+  parfum_harga      Decimal?            @default(0) @db.Decimal(10, 2)
+  notifications     notifications[]
+  order_details     order_details[]
+  order_products    order_products[]
+  order_status_logs order_status_logs[]
+  customers         customers           @relation(fields: [customer_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  outlets           outlets?            @relation(fields: [outlet_id], references: [id], onUpdate: NoAction)
+  tenants           tenants             @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users             users?              @relation(fields: [user_id], references: [id], onUpdate: NoAction)
+  parfums           parfums?            @relation(fields: [parfum_id], references: [id], onUpdate: NoAction)
+  payments          payments[]
 
   @@unique([tenant_id, client_id], map: "idx_orders_tenant_client_id", where: raw("(client_id IS NOT NULL)"))
   @@index([kode_pesanan], map: "idx_orders_kode_pesanan")
@@ -319,20 +319,20 @@ model tenant_settings {
 }
 
 model tenants {
-  id                 Int                @id @default(autoincrement())
-  name               String             @db.VarChar(100)
-  slug               String             @unique @db.VarChar(100)
+  id                 Int                  @id @default(autoincrement())
+  name               String               @db.VarChar(100)
+  slug               String               @unique @db.VarChar(100)
   address            String?
-  phone              String?            @db.VarChar(20)
-  email              String?            @db.VarChar(100)
-  logo               String?            @db.VarChar(255)
-  qris_image         String?            @db.VarChar(255)
-  whatsapp_token     String?            @db.VarChar(255)
-  subscription_plan  subscription_plan? @default(free)
-  subscription_until DateTime?          @db.Timestamp(6)
-  is_active          Boolean?           @default(true)
-  created_at         DateTime?          @default(now()) @db.Timestamp(6)
-  updated_at         DateTime?          @default(now()) @db.Timestamp(6)
+  phone              String?              @db.VarChar(20)
+  email              String?              @db.VarChar(100)
+  logo               String?              @db.VarChar(255)
+  qris_image         String?              @db.VarChar(255)
+  whatsapp_token     String?              @db.VarChar(255)
+  subscription_plan  subscription_plan?   @default(free)
+  subscription_until DateTime?            @db.Timestamp(6)
+  is_active          Boolean?             @default(true)
+  created_at         DateTime?            @default(now()) @db.Timestamp(6)
+  updated_at         DateTime?            @default(now()) @db.Timestamp(6)
   audit_logs         audit_logs[]
   customers          customers[]
   device_tokens      device_tokens[]
@@ -367,41 +367,41 @@ model user_sessions {
 }
 
 model users {
-  id                   Int             @id @default(autoincrement())
-  tenant_id            Int?
-  username             String          @unique @db.VarChar(50)
-  password             String?         @db.VarChar(255)
-  role                 user_role
-  nama                 String?         @db.VarChar(100)
-  email                String?         @db.VarChar(100)
-  no_hp                String?         @db.VarChar(15)
-  alamat               String?
-  outlet_id            Int?
-  is_active            Boolean?        @default(true)
-  deleted_at           DateTime?       @db.Timestamp(6)
-  api_token            String?         @unique @db.VarChar(100)
-  permissions          Json?           @default("{}")
-  created_at           DateTime?       @default(now()) @db.Timestamp(6)
-  updated_at           DateTime?       @default(now()) @db.Timestamp(6)
+  id                  Int                 @id @default(autoincrement())
+  tenant_id           Int?
+  username            String              @unique @db.VarChar(50)
+  password            String?             @db.VarChar(255)
+  role                user_role
+  nama                String?             @db.VarChar(100)
+  email               String?             @db.VarChar(100)
+  no_hp               String?             @db.VarChar(15)
+  alamat              String?
+  outlet_id           Int?
+  is_active           Boolean?            @default(true)
+  deleted_at          DateTime?           @db.Timestamp(6)
+  api_token           String?             @unique @db.VarChar(100)
+  permissions         Json?               @default("{}")
+  created_at          DateTime?           @default(now()) @db.Timestamp(6)
+  updated_at          DateTime?           @default(now()) @db.Timestamp(6)
   // Kolom untuk fitur lupa password (admin web only)
-  reset_token          String?         @db.VarChar(64)
-  reset_token_expires  DateTime?       @db.Timestamp(6)
+  reset_token         String?             @db.VarChar(64)
+  reset_token_expires DateTime?           @db.Timestamp(6)
   // Kolom untuk Google OAuth (SSO)
-  google_id            String?         @unique @db.VarChar(255)
-  auth_provider        String?         @default("local") @db.VarChar(20)
+  google_id           String?             @unique @db.VarChar(255)
+  auth_provider       String?             @default("local") @db.VarChar(20)
   // Token revocation: increment saat logout/password-change untuk invalidasi semua JWT lama
-  token_version        Int?            @default(0)
-  audit_logs           audit_logs[]
-  customers            customers[]
-  device_tokens        device_tokens[]
-  notifications        notifications[]
-  orders               orders[]
-  order_status_logs    order_status_logs[]
-  payments             payments[]
-  reports              reports[]
-  user_sessions        user_sessions[]
-  outlets              outlets?        @relation(fields: [outlet_id], references: [id], onUpdate: NoAction)
-  tenants              tenants?        @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  token_version       Int?                @default(0)
+  audit_logs          audit_logs[]
+  customers           customers[]
+  device_tokens       device_tokens[]
+  notifications       notifications[]
+  orders              orders[]
+  order_status_logs   order_status_logs[]
+  payments            payments[]
+  reports             reports[]
+  user_sessions       user_sessions[]
+  outlets             outlets?            @relation(fields: [outlet_id], references: [id], onUpdate: NoAction)
+  tenants             tenants?            @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
 
 model order_status_logs {
@@ -491,8 +491,8 @@ enum report_type {
 
 enum subscription_plan {
   free
-  month_1 @map("1_month")
-  months_3 @map("3_months")
+  month_1   @map("1_month")
+  months_3  @map("3_months")
   months_12 @map("12_months")
 }
 
@@ -507,33 +507,33 @@ enum user_role {
 // ── Produk (barang fisik yang dijual di samping jasa laundry) ──
 
 model product_categories {
-  id         Int       @id @default(autoincrement())
+  id         Int        @id @default(autoincrement())
   tenant_id  Int
-  nama       String    @db.VarChar(100)
+  nama       String     @db.VarChar(100)
   deskripsi  String?
-  is_active  Boolean   @default(true)
-  created_at DateTime? @default(now()) @db.Timestamp(6)
-  tenants    tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  is_active  Boolean    @default(true)
+  created_at DateTime?  @default(now()) @db.Timestamp(6)
+  tenants    tenants    @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   products   products[]
 
   @@index([tenant_id], map: "idx_product_categories_tenant")
 }
 
 model products {
-  id             Int                  @id @default(autoincrement())
+  id             Int                 @id @default(autoincrement())
   tenant_id      Int
   category_id    Int?
-  nama           String               @db.VarChar(100)
-  harga          Decimal              @db.Decimal(10, 2)
-  satuan         String               @default("pcs") @db.VarChar(20)
-  stok           Int                  @default(0)
-  lacak_stok     Boolean              @default(false)
+  nama           String              @db.VarChar(100)
+  harga          Decimal             @db.Decimal(10, 2)
+  satuan         String              @default("pcs") @db.VarChar(20)
+  stok           Int                 @default(0)
+  lacak_stok     Boolean             @default(false)
   deskripsi      String?
-  is_active      Boolean              @default(true)
-  created_at     DateTime?            @default(now()) @db.Timestamp(6)
-  updated_at     DateTime?            @default(now()) @db.Timestamp(6)
-  tenants        tenants              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  category       product_categories?  @relation(fields: [category_id], references: [id], onUpdate: NoAction)
+  is_active      Boolean             @default(true)
+  created_at     DateTime?           @default(now()) @db.Timestamp(6)
+  updated_at     DateTime?           @default(now()) @db.Timestamp(6)
+  tenants        tenants             @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  category       product_categories? @relation(fields: [category_id], references: [id], onUpdate: NoAction)
   order_products order_products[]
 
   @@index([tenant_id], map: "idx_products_tenant")
@@ -555,17 +555,34 @@ model order_products {
 }
 
 model parfums {
-  id              Int       @id @default(autoincrement())
-  tenant_id       Int
-  nama            String    @db.VarChar(100)
-  emoji           String?   @default("🧴") @db.VarChar(10)
-  harga_tambahan  Decimal   @default(0) @db.Decimal(10, 2)
-  is_default      Boolean   @default(false)
-  is_active       Boolean   @default(true)
-  deskripsi       String?
-  created_at      DateTime? @default(now()) @db.Timestamp(6)
-  tenants         tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  orders          orders[]
+  id             Int       @id @default(autoincrement())
+  tenant_id      Int
+  nama           String    @db.VarChar(100)
+  emoji          String?   @default("🧴") @db.VarChar(10)
+  harga_tambahan Decimal   @default(0) @db.Decimal(10, 2)
+  is_default     Boolean   @default(false)
+  is_active      Boolean   @default(true)
+  deskripsi      String?
+  created_at     DateTime? @default(now()) @db.Timestamp(6)
+  tenants        tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  orders         orders[]
 
   @@index([tenant_id], map: "idx_parfums_tenant")
+}
+
+model blog_articles {
+  id          Int       @id @default(autoincrement())
+  slug        String    @unique @db.VarChar(255)
+  title       String    @db.VarChar(500)
+  excerpt     String    @db.Text
+  content     String    @db.Text
+  read_time   String?   @default("5 min") @db.VarChar(20)
+  category    String?   @default("bisnis") @db.VarChar(50)
+  status      String?   @default("published") @db.VarChar(20)
+  source_urls String[]  @default([])
+  created_at  DateTime? @default(now()) @db.Timestamp(6)
+  updated_at  DateTime? @default(now()) @db.Timestamp(6)
+
+  @@index([status], map: "idx_blog_articles_status")
+  @@index([slug], map: "idx_blog_articles_slug")
 }
