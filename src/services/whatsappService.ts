@@ -45,7 +45,7 @@ export class WhatsAppService {
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'warn' }), // Enable logs to debug connection issue
-        browser: ['Lark Laundry', 'Chrome', '1.0.0']
+        // Omit browser config to avoid 405 Connection Failure
       });
 
       // Update the session client
