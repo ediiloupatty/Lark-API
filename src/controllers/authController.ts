@@ -900,7 +900,8 @@ export const loginWithMagicToken = async (req: Request, res: Response) => {
     let decoded: any;
     try {
       decoded = jwt.verify(token, jwtSecret);
-    } catch (err) {
+    } catch (err: any) {
+      console.error('[MagicLogin] jwt.verify failed:', err.message, 'Token received:', token);
       return res.status(401).json({ status: 'error', success: false, message: 'Token tidak valid atau sudah kadaluarsa.' });
     }
 
@@ -928,6 +929,7 @@ export const loginWithMagicToken = async (req: Request, res: Response) => {
     const tokenVersion = decoded.token_version ?? 0;
     
     if (tokenVersion < dbVersion) {
+       console.error('[MagicLogin] version mismatch: dbVersion=', dbVersion, 'tokenVersion=', tokenVersion);
        return res.status(401).json({ status: 'error', success: false, message: 'Sesi telah kadaluarsa. Silakan login kembali di aplikasi.' });
     }
 
