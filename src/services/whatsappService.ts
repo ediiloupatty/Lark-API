@@ -50,7 +50,9 @@ export class WhatsAppService {
         printQRInTerminal: false,
         logger: pino({ level: 'warn' }), // Enable logs to debug connection issue
         browser: Browsers.macOS('Desktop'),
-        syncFullHistory: false
+        syncFullHistory: false,
+        markOnlineOnConnect: false, // ANTI-BAN: Jangan selalu terlihat online saat terkoneksi
+        generateHighQualityLinkPreview: true
       });
 
       // Update the session client
@@ -169,7 +171,26 @@ export class WhatsAppService {
       
       const result = onWhatsAppResults[0];
 
+      // --- ANTI-BAN MANIPULATION ---
+      // 1. Simulate reading/online presence
+      await session.client.sendPresenceUpdate('available', result.jid);
+      
+      // 2. Simulate "typing..." status
+      await session.client.sendPresenceUpdate('composing', result.jid);
+
+      // 3. Add random human-like delay based on message length (approx 50ms per character + random 500-1500ms)
+      const baseDelay = Math.floor(Math.random() * 1000) + 500;
+      const typingTime = message.length * 30; // 30ms per char
+      const totalDelay = Math.min(baseDelay + typingTime, 5000); // max 5 seconds delay
+      await new Promise(resolve => setTimeout(resolve, totalDelay));
+
+      // 4. Send the actual message
       await session.client.sendMessage(result.jid, { text: message });
+
+      // 5. Turn off typing status
+      await session.client.sendPresenceUpdate('paused', result.jid);
+      // -----------------------------
+
       console.log(`[WA] Message sent to ${formattedNumber} for tenant ${tenantId}`);
       return true;
     } catch (error) {
