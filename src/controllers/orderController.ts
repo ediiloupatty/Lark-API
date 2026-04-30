@@ -37,7 +37,8 @@ export const getOrders = async (req: AuthRequest, res: Response) => {
              p.status_pembayaran, p.tgl_pembayaran, p.konfirmasi_pada, p.jumlah_bayar, p.metode_pembayaran as metode_bayar,
              ot.nama as outlet_nama, ot.alamat as outlet_alamat, ot.phone as outlet_phone,
              u.nama as user_nama,
-             pf.nama as parfum_nama
+             pf.nama as parfum_nama,
+             o.parfum_harga
       FROM orders o
       JOIN customers c ON o.customer_id = c.id
       LEFT JOIN payments p ON o.id = p.order_id
@@ -108,6 +109,26 @@ export const getOrders = async (req: AuthRequest, res: Response) => {
       }));
 
       const finalItems = [...formattedItems, ...formattedProducts];
+
+      // Add parfum as virtual line item if present
+      if (order.parfum_nama) {
+        const parfumHarga = Number(order.parfum_harga || 0);
+        finalItems.push({
+          id: null,
+          order_id: order.id,
+          service_id: null,
+          product_id: null,
+          nama_item: `🧴 Parfum: ${order.parfum_nama}`,
+          jumlah: 1,
+          berat: 0,
+          harga: parfumHarga,
+          subtotal: parfumHarga,
+          harga_per_kg: 0,
+          satuan: 'pcs',
+          paket_nama: null,
+          is_parfum: true,
+        });
+      }
       
       const finalOrder = {
         ...order,
@@ -225,6 +246,25 @@ export const getOrders = async (req: AuthRequest, res: Response) => {
 
     const formattedOrders = orders.map(o => {
       const itms = itemsMap[o.id] || [];
+      // Add parfum as virtual line item if present
+      if (o.parfum_nama) {
+        const parfumHarga = Number(o.parfum_harga || 0);
+        itms.push({
+          id: null,
+          order_id: o.id,
+          service_id: null,
+          product_id: null,
+          nama_item: `🧴 Parfum: ${o.parfum_nama}`,
+          jumlah: 1,
+          berat: 0,
+          harga: parfumHarga,
+          subtotal: parfumHarga,
+          harga_per_kg: 0,
+          satuan: 'pcs',
+          paket_nama: null,
+          is_parfum: true,
+        });
+      }
       return {
         ...o,
         total_harga: Number(o.total_harga || 0),
