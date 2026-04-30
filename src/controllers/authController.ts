@@ -966,7 +966,7 @@ export const loginWithMagicToken = async (req: Request, res: Response) => {
     return res.status(200).json({
       status: 'success',
       success: true,
-      message: 'Login berhasil via Magic Link',
+      message: 'Login otomatis berhasil',
       data: {
         user: {
           id: user.id,
