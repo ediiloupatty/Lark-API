@@ -43,7 +43,7 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
     // Today's Orders
     const oc1 = buildOutletCond(2);
     const todayRes = await db.$queryRawUnsafe<any[]>(
-      `SELECT COUNT(*) as count FROM orders WHERE tenant_id = $1 AND date(tgl_order) = CURRENT_DATE ${oc1.clause}`,
+      `SELECT COUNT(*) as count FROM orders WHERE tenant_id = $1 AND (tgl_order AT TIME ZONE 'Asia/Makassar')::date = (NOW() AT TIME ZONE 'Asia/Makassar')::date ${oc1.clause}`,
       tenantId, ...oc1.params
     );
     const today_count = Number(todayRes[0]?.count || 0);
@@ -61,7 +61,7 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
     if (isAdmin) {
       const oc3 = buildOutletCond(2);
       const incomeRes = await db.$queryRawUnsafe<any[]>(
-        `SELECT SUM(total_harga) as total FROM orders WHERE tenant_id = $1 AND date_trunc('month', tgl_order) = date_trunc('month', CURRENT_DATE) AND status != 'dibatalkan' ${oc3.clause}`,
+        `SELECT SUM(total_harga) as total FROM orders WHERE tenant_id = $1 AND date_trunc('month', tgl_order AT TIME ZONE 'Asia/Makassar') = date_trunc('month', NOW() AT TIME ZONE 'Asia/Makassar') AND status != 'dibatalkan' ${oc3.clause}`,
         tenantId, ...oc3.params
       );
       const monthly_income = Number(incomeRes[0]?.total || 0);
@@ -94,11 +94,11 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
     // 3. Revenue Chart Data (Last 7 Days)
     const oc5 = buildOutletCond(2);
     const rawChartData = await db.$queryRawUnsafe<any[]>(`
-      SELECT date(tgl_order) as order_date, SUM(total_harga) as income 
+      SELECT (tgl_order AT TIME ZONE 'Asia/Makassar')::date as order_date, SUM(total_harga) as income 
       FROM orders 
-      WHERE tenant_id = $1 AND tgl_order >= CURRENT_DATE - INTERVAL '7 days' AND status != 'dibatalkan' ${oc5.clause}
-      GROUP BY order_date
-      ORDER BY order_date ASC
+      WHERE tenant_id = $1 AND (tgl_order AT TIME ZONE 'Asia/Makassar')::date >= (NOW() AT TIME ZONE 'Asia/Makassar')::date - INTERVAL '7 days' AND status != 'dibatalkan' ${oc5.clause}
+      GROUP BY (tgl_order AT TIME ZONE 'Asia/Makassar')::date
+      ORDER BY (tgl_order AT TIME ZONE 'Asia/Makassar')::date ASC
     `, tenantId, ...oc5.params);
 
     const chart_data: any[] = [];
@@ -178,7 +178,7 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
     const pay_pending_count = Number(payPendRes[0]?.count || 0);
 
     const oc11 = buildOutletCond(2);
-    const todayRevRes = await db.$queryRawUnsafe<any[]>(`SELECT SUM(total_harga) as total FROM orders WHERE tenant_id = $1 AND date(tgl_order) = CURRENT_DATE AND status != 'dibatalkan' ${oc11.clause}`, tenantId, ...oc11.params);
+    const todayRevRes = await db.$queryRawUnsafe<any[]>(`SELECT SUM(total_harga) as total FROM orders WHERE tenant_id = $1 AND (tgl_order AT TIME ZONE 'Asia/Makassar')::date = (NOW() AT TIME ZONE 'Asia/Makassar')::date AND status != 'dibatalkan' ${oc11.clause}`, tenantId, ...oc11.params);
     const today_revenue = Number(todayRevRes[0]?.total || 0);
 
     let status_counts: any = {};
@@ -196,8 +196,8 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
     if (!outletId && isAdmin) {
       outlet_rankings = await db.$queryRawUnsafe<any[]>(`
         SELECT ot.id, ot.nama,
-        (SELECT COUNT(*) FROM orders WHERE outlet_id = ot.id AND DATE(tgl_order) = CURRENT_DATE) as c_today,
-        (SELECT COALESCE(SUM(total_harga), 0) FROM orders WHERE outlet_id = ot.id AND DATE(tgl_order) = CURRENT_DATE AND status != 'dibatalkan') as r_today
+        (SELECT COUNT(*) FROM orders WHERE outlet_id = ot.id AND (tgl_order AT TIME ZONE 'Asia/Makassar')::date = (NOW() AT TIME ZONE 'Asia/Makassar')::date) as c_today,
+        (SELECT COALESCE(SUM(total_harga), 0) FROM orders WHERE outlet_id = ot.id AND (tgl_order AT TIME ZONE 'Asia/Makassar')::date = (NOW() AT TIME ZONE 'Asia/Makassar')::date AND status != 'dibatalkan') as r_today
         FROM outlets ot WHERE ot.tenant_id = $1 ORDER BY r_today DESC NULLS LAST
       `, tenantId);
       
