@@ -183,11 +183,14 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
 
     let status_counts: any = {};
     const statuses = ['menunggu_konfirmasi', 'diproses', 'siap_diambil', 'siap_diantar', 'selesai', 'dibatalkan'];
-    for (const s of statuses) {
-      const oc12 = buildOutletCond(3);
-      const scRes = await db.$queryRawUnsafe<any[]>(`SELECT COUNT(*) as count FROM orders WHERE tenant_id = $1 AND status = $2::order_status ${oc12.clause}`, tenantId, s, ...oc12.params);
-      status_counts[s] = Number(scRes[0]?.count || 0);
-    }
+    // Single query replaces 6 sequential queries
+    const oc12 = buildOutletCond(2);
+    const scRows = await db.$queryRawUnsafe<any[]>(
+      `SELECT status::text, COUNT(*) as count FROM orders WHERE tenant_id = $1 ${oc12.clause} GROUP BY status`,
+      tenantId, ...oc12.params
+    );
+    for (const s of statuses) status_counts[s] = 0;
+    for (const r of scRows) status_counts[r.status] = Number(r.count || 0);
 
     let outlet_rankings: any[] = [];
     if (!outletId && isAdmin) {
