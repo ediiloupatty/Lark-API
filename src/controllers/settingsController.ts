@@ -15,6 +15,13 @@ export const getSettings = async (req: AuthRequest, res: Response) => {
       return acc;
     }, {} as any);
 
+    // Include tenant timezone in settings response
+    const tenant = await db.tenants.findUnique({
+      where: { id: tenantId as number },
+      select: { timezone: true }
+    });
+    settingsMap.timezone = tenant?.timezone || 'Asia/Makassar';
+
     res.json({ status: 'success', data: settingsMap });
   } catch (err) {
     res.status(500).json({ status: 'error', message: 'Gagal memuat pengaturan' });
@@ -43,7 +50,21 @@ export const updateSettings = async (req: AuthRequest, res: Response) => {
     ]);
 
     let updatedCount = 0;
+
+    // Handle timezone separately — stored on tenants table, not tenant_settings
+    if (updates.timezone) {
+      const VALID_TZ = ['Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura'];
+      if (VALID_TZ.includes(updates.timezone)) {
+        await db.tenants.update({
+          where: { id: tenantId },
+          data: { timezone: updates.timezone }
+        });
+        updatedCount++;
+      }
+    }
+
     for (const [key, value] of Object.entries(updates)) {
+      if (key === 'timezone') continue; // Already handled above
       if (!ALLOWED_SETTING_KEYS.has(key)) continue;
       await db.tenant_settings.upsert({
         where: { tenant_id_setting_key: { tenant_id: tenantId, setting_key: key } },

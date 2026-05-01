@@ -334,6 +334,7 @@ model tenants {
   is_active          Boolean?             @default(true)
   created_at         DateTime?            @default(now()) @db.Timestamp(6)
   updated_at         DateTime?            @default(now()) @db.Timestamp(6)
+  timezone           String?              @default("Asia/Makassar") @db.VarChar(50)
   audit_logs         audit_logs[]
   customers          customers[]
   device_tokens      device_tokens[]
