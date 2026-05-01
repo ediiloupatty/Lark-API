@@ -28,6 +28,7 @@ dotenv.config({ path: findEnvFile() });
 import app from './app';
 import { checkConnection, db, pool } from './config/db';
 import { startReminderScheduler } from './schedulers/reminderScheduler';
+import { WhatsAppService } from './services/whatsappService';
 
 const PORT = process.env.PORT || 3000;
 
@@ -97,6 +98,11 @@ async function bootstrap() {
   if (isDbConnected) {
     startReminderScheduler();
   }
+
+  // Auto-reconnect existing WhatsApp sessions (Point 5)
+  WhatsAppService.autoReconnectAll().catch(err =>
+    console.error('[Bootstrap] WA auto-reconnect error:', err)
+  );
 }
 
 bootstrap();

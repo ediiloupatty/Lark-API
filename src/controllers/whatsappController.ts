@@ -9,8 +9,9 @@ export const getStatus = async (req: Request, res: Response) => {
     }
 
     const { status, qrCode } = WhatsAppService.getStatus(tenantId);
+    const stats = WhatsAppService.getStats(tenantId);
     
-    return res.json({ success: true, status, qrCode });
+    return res.json({ success: true, status, qrCode, stats });
   } catch (error: any) {
     console.error('Error in getStatus:', error);
     return res.status(500).json({ success: false, error: 'Internal Server Error' });
