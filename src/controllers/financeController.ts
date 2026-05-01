@@ -268,7 +268,7 @@ export const getReports = async (req: AuthRequest, res: Response) => {
       LEFT JOIN LATERAL (
         SELECT p.status_pembayaran FROM payments p WHERE p.order_id = o.id ORDER BY p.id DESC LIMIT 1
       ) pay ON TRUE
-      WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3 ${oc1.clause}
+      WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 ${oc1.clause}
     `, tenantId, startDate, endDate, ...oc1.params);
 
     const s = summaryRows[0] || {};
@@ -294,7 +294,7 @@ export const getReports = async (req: AuthRequest, res: Response) => {
         COUNT(CASE WHEN o.status != 'dibatalkan' THEN 1 END) AS billable_orders,
         COALESCE(SUM(CASE WHEN o.status != 'dibatalkan' THEN o.total_harga ELSE 0 END), 0) AS gross_revenue
       FROM orders o
-      WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3 ${oc2.clause}
+      WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 ${oc2.clause}
     `, tenantId, prevStartStr, prevEndStr, ...oc2.params);
 
     const prevRevenue = Number(prevRows[0]?.gross_revenue || 0);
@@ -306,7 +306,7 @@ export const getReports = async (req: AuthRequest, res: Response) => {
     const oc3 = buildOutletCondExp(4);
     const expRows = await db.$queryRawUnsafe<any[]>(`
       SELECT COALESCE(SUM(jumlah), 0) AS total FROM expenses e
-      WHERE e.tenant_id = $1 AND DATE(e.tanggal) BETWEEN $2 AND $3 ${oc3.clause}
+      WHERE e.tenant_id = $1 AND (e.tanggal AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 ${oc3.clause}
     `, tenantId, startDate, endDate, ...oc3.params);
     const totalExpenses = Number(expRows[0]?.total || 0);
 
@@ -315,7 +315,7 @@ export const getReports = async (req: AuthRequest, res: Response) => {
     const statusRaw = await db.$queryRawUnsafe<any[]>(`
       SELECT o.status, COUNT(*) AS order_count, COALESCE(SUM(o.total_harga), 0) AS total_amount
       FROM orders o
-      WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3 ${oc4.clause}
+      WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 ${oc4.clause}
       GROUP BY o.status
     `, tenantId, startDate, endDate, ...oc4.params);
 
@@ -351,7 +351,7 @@ export const getReports = async (req: AuthRequest, res: Response) => {
       LEFT JOIN LATERAL (
         SELECT p.status_pembayaran FROM payments p WHERE p.order_id = o.id ORDER BY p.id DESC LIMIT 1
       ) pay ON TRUE
-      WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3
+      WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3
         AND o.status != 'dibatalkan' ${oc5.clause}
       GROUP BY COALESCE(pay.status_pembayaran, 'pending')
     `, tenantId, startDate, endDate, ...oc5.params);
@@ -381,7 +381,7 @@ export const getReports = async (req: AuthRequest, res: Response) => {
       LEFT JOIN LATERAL (
         SELECT p.status_pembayaran, p.metode_pembayaran FROM payments p WHERE p.order_id = o.id ORDER BY p.id DESC LIMIT 1
       ) pay ON TRUE
-      WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3
+      WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3
         AND o.status != 'dibatalkan' AND pay.status_pembayaran = 'lunas' ${oc6.clause}
       GROUP BY COALESCE(pay.metode_pembayaran::text, 'belum_dicatat')
       ORDER BY total_amount DESC LIMIT 5
@@ -397,13 +397,13 @@ export const getReports = async (req: AuthRequest, res: Response) => {
     // --- Chart data ---
     const oc7 = buildOutletCond(4);
     const chartRaw = await db.$queryRawUnsafe<any[]>(`
-      SELECT DATE(o.tgl_order) AS order_date,
+      SELECT (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date AS order_date,
              COUNT(CASE WHEN o.status != 'dibatalkan' THEN 1 END) AS daily_orders,
              COALESCE(SUM(CASE WHEN o.status != 'dibatalkan' THEN o.total_harga ELSE 0 END), 0) AS daily_revenue
       FROM orders o
-      WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3 ${oc7.clause}
-      GROUP BY DATE(o.tgl_order)
-      ORDER BY DATE(o.tgl_order) ASC
+      WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 ${oc7.clause}
+      GROUP BY (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date
+      ORDER BY (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date ASC
     `, tenantId, startDate, endDate, ...oc7.params);
 
     const chartIndex: any = {};
@@ -429,7 +429,7 @@ export const getReports = async (req: AuthRequest, res: Response) => {
       FROM order_details od
       JOIN services s ON od.service_id = s.id
       JOIN orders o ON od.order_id = o.id
-      WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3 AND o.status != 'dibatalkan' ${oc8.clause}
+      WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 AND o.status != 'dibatalkan' ${oc8.clause}
       GROUP BY s.nama_layanan ORDER BY total DESC LIMIT 5
     `, tenantId, startDate, endDate, ...oc8.params);
 
@@ -438,7 +438,7 @@ export const getReports = async (req: AuthRequest, res: Response) => {
     const topCustomers = await db.$queryRawUnsafe<any[]>(`
       SELECT c.nama, COUNT(o.id) AS count, COALESCE(SUM(o.total_harga), 0) AS total_spent
       FROM orders o JOIN customers c ON o.customer_id = c.id
-      WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3 AND o.status != 'dibatalkan' ${oc9.clause}
+      WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 AND o.status != 'dibatalkan' ${oc9.clause}
       GROUP BY c.nama ORDER BY total_spent DESC LIMIT 5
     `, tenantId, startDate, endDate, ...oc9.params);
 
@@ -452,7 +452,7 @@ export const getReports = async (req: AuthRequest, res: Response) => {
       JOIN users u ON p.dikonfirmasi_oleh = u.id
       JOIN orders o ON p.order_id = o.id
       WHERE p.tenant_id = $1
-        AND DATE(COALESCE(p.tgl_pembayaran, o.tgl_order)) BETWEEN $2 AND $3
+        AND (COALESCE(p.tgl_pembayaran, o.tgl_order) AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3
         AND p.status_pembayaran = 'lunas' ${oc10.clause}
       GROUP BY u.nama ORDER BY total_confirmed DESC LIMIT 5
     `, tenantId, startDate, endDate, ...oc10.params);
@@ -470,7 +470,7 @@ export const getReports = async (req: AuthRequest, res: Response) => {
         WHERE u.tenant_id = $1
           AND u.role::text = 'karyawan'
           AND o.status NOT IN ('dibatalkan')
-          AND DATE(o.tgl_order) BETWEEN $2 AND $3
+          AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3
           ${oc11.clause}
         GROUP BY u.nama ORDER BY total_confirmed DESC LIMIT 5
       `, tenantId, startDate, endDate, ...oc11.params);
@@ -494,7 +494,7 @@ export const getReports = async (req: AuthRequest, res: Response) => {
         SELECT COALESCE(ot.nama, 'Tanpa Outlet') AS nama_outlet,
                COUNT(o.id) AS order_count, COALESCE(SUM(o.total_harga), 0) AS total_revenue
         FROM orders o LEFT JOIN outlets ot ON o.outlet_id = ot.id
-        WHERE o.tenant_id = $1 AND DATE(o.tgl_order) BETWEEN $2 AND $3 AND o.status != 'dibatalkan'
+        WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 AND o.status != 'dibatalkan'
         GROUP BY COALESCE(ot.nama, 'Tanpa Outlet') ORDER BY total_revenue DESC LIMIT 5
       `, tenantId, startDate, endDate);
     }

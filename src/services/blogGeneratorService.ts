@@ -64,7 +64,6 @@ async function sendDiscordNotification(options: {
       }),
     });
 
-    console.log('[Discord] 📨 Notifikasi terkirim!');
   } catch (err: any) {
     console.warn(`[Discord] ⚠️ Gagal kirim notifikasi: ${err.message}`);
   }
@@ -273,7 +272,6 @@ async function fetchRssFeeds(): Promise<RssItem[]> {
       const xml = await res.text();
       const items = parseRssXml(xml);
       allItems.push(...items);
-      console.log(`[BlogGen] ✅ ${items.length} items dari ${feedUrl}`);
     } catch (e: any) {
       console.warn(`[BlogGen] RSS error ${feedUrl}: ${e.message}`);
     }
@@ -306,7 +304,6 @@ async function callQwen(prompt: string): Promise<string> {
   for (const model of QWEN_MODELS) {
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        console.log(`[BlogGen] 🤖 Trying ${model} (attempt ${attempt}/3)...`);
         
         // Timeout 90 detik untuk API call (hindari hang selamanya)
         const controller = new AbortController();
@@ -381,7 +378,6 @@ ATURAN FORMAT KRITIS:
         const text = json?.choices?.[0]?.message?.content;
         if (!text) throw new Error('Qwen response kosong');
         
-        console.log(`[BlogGen] ✅ ${model} berhasil!`);
         return text;
       } catch (e: any) {
         if (attempt === 3) console.warn(`[BlogGen] ❌ ${model} gagal setelah 3 percobaan: ${e.message}`);
@@ -512,7 +508,6 @@ Judul max 80 karakter. TIDAK harus pakai angka.
   const raw = await callQwen(prompt);
 
   // Log raw response for debugging
-  console.log(`[BlogGen] 📄 Raw response (first 300 chars): ${raw.slice(0, 300)}`);
 
   // Clean up any markdown wrapper Qwen might add
   let cleaned = raw
@@ -545,9 +540,7 @@ Judul max 80 karakter. TIDAK harus pakai angka.
   let category = VALID_CATEGORIES.includes(rawCategory) ? rawCategory : '';
   if (!category) {
     category = detectCategoryFallback(`${title} ${excerpt} ${content.slice(0, 500)}`);
-    console.log(`[BlogGen] 🏷️ Category auto-detected: "${category}" (Qwen returned: "${rawCategory}")`);
   } else {
-    console.log(`[BlogGen] 🏷️ Category from Qwen: "${category}"`);
   }
 
   // Fallback: if delimiter parsing failed, try line-based extraction
@@ -578,14 +571,12 @@ Judul max 80 karakter. TIDAK harus pakai angka.
     const h2Match = content.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i);
     if (h2Match) {
       title = h2Match[1].replace(/<[^>]+>/g, '').trim();
-      console.log(`[BlogGen] 🔄 Using first h2 as title: "${title}"`);
     } else {
       // Use first sentence of content as title
       const firstP = content.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
       if (firstP) {
         const firstSentence = firstP[1].replace(/<[^>]+>/g, '').split(/[.!?]/)[0].trim();
         title = firstSentence.length > 20 ? firstSentence.slice(0, 80) : 'Strategi Bisnis Laundry ' + new Date().toLocaleDateString('id-ID');
-        console.log(`[BlogGen] 🔄 Using first sentence as title: "${title}"`);
       }
     }
   }
@@ -692,27 +683,21 @@ async function saveArticle(article: GeneratedArticle): Promise<number> {
 
 // ── Main: Generate Daily Blog ─────────────────────────────────────────────────
 export async function generateDailyBlog(): Promise<{ success: boolean; articles?: any[]; error?: string }> {
-  console.log('[BlogGen] 🚀 Mulai generate blog harian...');
   
   try {
     // 0. Fetch existing topics dari database untuk hindari duplikat
     const existingTopics = await fetchExistingTopics();
-    console.log(`[BlogGen] 📚 Artikel existing di DB: ${existingTopics.length} judul`);
     if (existingTopics.length > 0) {
-      console.log(`[BlogGen] 📋 Contoh judul terakhir: ${existingTopics.slice(0, 5).join(' | ')}`);
     }
 
     // 1. Fetch RSS
     const allNews = await fetchRssFeeds();
-    console.log(`[BlogGen] 📰 Total berita: ${allNews.length}`);
 
     // 2. Filter relevan
     let relevant = filterRelevantNews(allNews);
-    console.log(`[BlogGen] 🎯 Berita relevan: ${relevant.length}`);
 
     // Kalau tidak ada berita relevan, ambil random berita bisnis
     if (relevant.length === 0) {
-      console.log('[BlogGen] ⚠️ Tidak ada berita relevan, ambil random...');
       relevant = allNews.slice(0, 10);
     }
 
@@ -727,7 +712,6 @@ export async function generateDailyBlog(): Promise<{ success: boolean; articles?
 
     // Generate 1 artikel per run (jalan 2x sehari: pagi 05:00 + sore 17:00 WITA)
     for (let i = 0; i < 1; i++) {
-      console.log(`\n[BlogGen] 📝 Membuat Artikel...`);
 
       // Format judul yang di-rotate setiap retry agar AI tidak stuck di pola yang sama
       const titleFormats = [
@@ -743,7 +727,6 @@ export async function generateDailyBlog(): Promise<{ success: boolean; articles?
       for (let retry = 0; retry < 5; retry++) {
         // Re-shuffle chunk berita setiap retry untuk memberi AI konteks yang berbeda
         const chunk = relevant.sort(() => Math.random() - 0.5).slice(0, Math.min(5, relevant.length));
-        console.log(`[BlogGen] 📋 Retry ${retry + 1} - Dipilih: ${chunk.map(s => s.title).join(' | ')}`);
 
         // Paksa format judul berbeda setiap retry
         const forcedFormat = titleFormats[retry % titleFormats.length];
@@ -779,11 +762,9 @@ export async function generateDailyBlog(): Promise<{ success: boolean; articles?
       }
 
       try {
-        console.log(`[BlogGen] ✍️  Artikel: "${article.title}"`);
 
         // 6. Simpan ke DB
         const articleId = await saveArticle(article);
-        console.log(`[BlogGen] ✅ Tersimpan! ID: ${articleId}`);
 
         results.push({ id: articleId, title: article.title });
         previousTopics += `- ${article.title}\n`;
