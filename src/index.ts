@@ -69,12 +69,10 @@ async function bootstrap() {
         `);
         await client.query(`CREATE INDEX IF NOT EXISTS idx_device_tokens_tenant_id ON device_tokens(tenant_id)`);
         await client.query(`CREATE INDEX IF NOT EXISTS idx_device_tokens_user_id ON device_tokens(user_id)`);
-        console.log('[Bootstrap] ✅ Tabel device_tokens sudah siap.');
 
         await client.query(`
           ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 0
         `);
-        console.log('[Bootstrap] ✅ Kolom token_version sudah siap.');
 
 
       } catch (e: any) {
@@ -90,7 +88,6 @@ async function bootstrap() {
   }
 
   app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
     if (!isDbConnected) {
       console.warn('⚠️  Server jalan TANPA koneksi database. Periksa DATABASE_URL dan status PostgreSQL!');
     }
@@ -106,10 +103,8 @@ bootstrap();
 
 // Fix BS-3: Graceful shutdown — tutup koneksi DB dengan benar saat Docker/PM2 stop
 async function shutdown(signal: string) {
-  console.log(`[Server] Menerima signal ${signal}. Shutdown dengan benar...`);
   try {
     await db.$disconnect();
-    console.log('[Server] ✅ Prisma disconnected.');
   } catch (e) {
     console.error('[Server] Error saat disconnect Prisma:', e);
   }

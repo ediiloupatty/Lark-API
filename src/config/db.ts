@@ -77,7 +77,6 @@ export const checkConnection = async (): Promise<boolean> => {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       await prisma.$connect();
-      console.log('✅ Koneksi ke PostgreSQL via Prisma berhasil.');
       return true;
     } catch (err: any) {
       const delay = BASE_DELAY_MS * Math.pow(2, attempt - 1);
@@ -85,7 +84,6 @@ export const checkConnection = async (): Promise<boolean> => {
         `❌ [Attempt ${attempt}/${MAX_RETRIES}] Database connection gagal: ${err.message}`
       );
       if (attempt < MAX_RETRIES) {
-        console.log(`   ⏳ Retry dalam ${delay / 1000}s...`);
         await new Promise((r) => setTimeout(r, delay));
       }
     }

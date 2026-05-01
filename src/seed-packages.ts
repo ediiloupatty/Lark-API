@@ -96,11 +96,9 @@ async function seedPackages() {
       },
       create: p,
     });
-    console.log(`Upserted: ${result.plan_code} — Rp ${result.harga}`);
   }
 
   await prisma.$disconnect();
-  console.log('Done!');
 }
 
 seedPackages().catch(async (e) => {

@@ -21,7 +21,6 @@ import crypto from 'crypto';
  */
 
 const IS_PROD = process.env.NODE_ENV === 'production';
-
 /**
  * Middleware untuk SET csrf cookie pada setiap response.
  * Dipasang di level app, sebelum routes.

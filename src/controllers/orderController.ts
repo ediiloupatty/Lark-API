@@ -389,6 +389,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
         metode_antar: metode_antar || 'antar_sendiri',
         catatan: catatan || '',
         tracking_code: trackingCode,
+        tgl_order: new Date(), // Explicitly set order date for accurate reporting
         estimasi_tanggal: new Date(estimasiTanggal),
         estimasi_waktu: estimasiWaktu,
         outlet_id: safeOutletId,
