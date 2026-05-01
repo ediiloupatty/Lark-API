@@ -251,26 +251,45 @@ export const getReports = async (req: AuthRequest, res: Response) => {
       if (ot.length > 0) scopeLabel = ot[0].nama;
     }
 
-    // --- Summary current period ---
+    // --- BATCH 1: Summary + Previous Period + Expenses (all independent) ---
     const oc1 = buildOutletCond(4);
-    const summaryRows = await db.$queryRawUnsafe<any[]>(`
-      SELECT
-        COUNT(o.id) AS total_orders,
-        COUNT(CASE WHEN o.status = 'selesai' THEN 1 END) AS completed_orders,
-        COUNT(CASE WHEN o.status = 'dibatalkan' THEN 1 END) AS cancelled_orders,
-        COUNT(CASE WHEN o.status != 'dibatalkan' THEN 1 END) AS billable_orders,
-        COALESCE(SUM(CASE WHEN o.status != 'dibatalkan' THEN o.total_harga ELSE 0 END), 0) AS gross_revenue,
-        COUNT(DISTINCT CASE WHEN o.status != 'dibatalkan' THEN o.customer_id END) AS active_customers,
-        COUNT(CASE WHEN o.status != 'dibatalkan' AND pay.status_pembayaran = 'lunas' THEN 1 END) AS paid_orders,
-        COALESCE(SUM(CASE WHEN o.status != 'dibatalkan' AND pay.status_pembayaran = 'lunas' THEN o.total_harga ELSE 0 END), 0) AS collected_revenue,
-        COALESCE(SUM(CASE WHEN o.status != 'dibatalkan' AND (pay.status_pembayaran IS NULL OR pay.status_pembayaran != 'lunas') THEN o.total_harga ELSE 0 END), 0) AS outstanding_revenue
-      FROM orders o
-      LEFT JOIN LATERAL (
-        SELECT p.status_pembayaran FROM payments p WHERE p.order_id = o.id ORDER BY p.id DESC LIMIT 1
-      ) pay ON TRUE
-      WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 ${oc1.clause}
-    `, tenantId, startDate, endDate, ...oc1.params);
+    const oc2 = buildOutletCond(4);
+    const oc3 = buildOutletCondExp(4);
+    const [summaryRows, prevRows, expRows] = await Promise.all([
+      // Summary current period
+      db.$queryRawUnsafe<any[]>(`
+        SELECT
+          COUNT(o.id) AS total_orders,
+          COUNT(CASE WHEN o.status = 'selesai' THEN 1 END) AS completed_orders,
+          COUNT(CASE WHEN o.status = 'dibatalkan' THEN 1 END) AS cancelled_orders,
+          COUNT(CASE WHEN o.status != 'dibatalkan' THEN 1 END) AS billable_orders,
+          COALESCE(SUM(CASE WHEN o.status != 'dibatalkan' THEN o.total_harga ELSE 0 END), 0) AS gross_revenue,
+          COUNT(DISTINCT CASE WHEN o.status != 'dibatalkan' THEN o.customer_id END) AS active_customers,
+          COUNT(CASE WHEN o.status != 'dibatalkan' AND pay.status_pembayaran = 'lunas' THEN 1 END) AS paid_orders,
+          COALESCE(SUM(CASE WHEN o.status != 'dibatalkan' AND pay.status_pembayaran = 'lunas' THEN o.total_harga ELSE 0 END), 0) AS collected_revenue,
+          COALESCE(SUM(CASE WHEN o.status != 'dibatalkan' AND (pay.status_pembayaran IS NULL OR pay.status_pembayaran != 'lunas') THEN o.total_harga ELSE 0 END), 0) AS outstanding_revenue
+        FROM orders o
+        LEFT JOIN LATERAL (
+          SELECT p.status_pembayaran FROM payments p WHERE p.order_id = o.id ORDER BY p.id DESC LIMIT 1
+        ) pay ON TRUE
+        WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 ${oc1.clause}
+      `, tenantId, startDate, endDate, ...oc1.params),
+      // Previous period (for growth %)
+      db.$queryRawUnsafe<any[]>(`
+        SELECT
+          COUNT(CASE WHEN o.status != 'dibatalkan' THEN 1 END) AS billable_orders,
+          COALESCE(SUM(CASE WHEN o.status != 'dibatalkan' THEN o.total_harga ELSE 0 END), 0) AS gross_revenue
+        FROM orders o
+        WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 ${oc2.clause}
+      `, tenantId, prevStartStr, prevEndStr, ...oc2.params),
+      // Expenses
+      db.$queryRawUnsafe<any[]>(`
+        SELECT COALESCE(SUM(jumlah), 0) AS total FROM expenses e
+        WHERE e.tenant_id = $1 AND (e.tanggal AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 ${oc3.clause}
+      `, tenantId, startDate, endDate, ...oc3.params),
+    ]);
 
+    // --- Derive values from batch 1 ---
     const s = summaryRows[0] || {};
     const grossRevenue      = Number(s.gross_revenue      || 0);
     const billableOrders    = Number(s.billable_orders    || 0);
@@ -287,37 +306,94 @@ export const getReports = async (req: AuthRequest, res: Response) => {
     const completionRate    = billableOrders > 0 ? (completedOrders / billableOrders) * 100 : 0;
     const cancellationRate  = totalOrders > 0 ? (cancelledOrders / totalOrders) * 100 : 0;
 
-    // --- Previous period (for growth %) ---
-    const oc2 = buildOutletCond(4);
-    const prevRows = await db.$queryRawUnsafe<any[]>(`
-      SELECT
-        COUNT(CASE WHEN o.status != 'dibatalkan' THEN 1 END) AS billable_orders,
-        COALESCE(SUM(CASE WHEN o.status != 'dibatalkan' THEN o.total_harga ELSE 0 END), 0) AS gross_revenue
-      FROM orders o
-      WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 ${oc2.clause}
-    `, tenantId, prevStartStr, prevEndStr, ...oc2.params);
-
     const prevRevenue = Number(prevRows[0]?.gross_revenue || 0);
     const prevOrders  = Number(prevRows[0]?.billable_orders || 0);
     const revenueGrowthPct = prevRevenue === 0 ? (grossRevenue > 0 ? 100 : 0) : ((grossRevenue - prevRevenue) / prevRevenue) * 100;
     const orderGrowthPct   = prevOrders  === 0 ? (billableOrders > 0 ? 100 : 0) : ((billableOrders - prevOrders) / prevOrders) * 100;
-
-    // --- Expenses ---
-    const oc3 = buildOutletCondExp(4);
-    const expRows = await db.$queryRawUnsafe<any[]>(`
-      SELECT COALESCE(SUM(jumlah), 0) AS total FROM expenses e
-      WHERE e.tenant_id = $1 AND (e.tanggal AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 ${oc3.clause}
-    `, tenantId, startDate, endDate, ...oc3.params);
     const totalExpenses = Number(expRows[0]?.total || 0);
 
-    // --- Status breakdown ---
+    // --- BATCH 2: All breakdowns + chart + rankings (all independent) ---
     const oc4 = buildOutletCond(4);
-    const statusRaw = await db.$queryRawUnsafe<any[]>(`
-      SELECT o.status, COUNT(*) AS order_count, COALESCE(SUM(o.total_harga), 0) AS total_amount
-      FROM orders o
-      WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 ${oc4.clause}
-      GROUP BY o.status
-    `, tenantId, startDate, endDate, ...oc4.params);
+    const oc5 = buildOutletCond(4);
+    const oc6 = buildOutletCond(4);
+    const oc7 = buildOutletCond(4);
+    const oc8 = buildOutletCond(4);
+    const oc9 = buildOutletCond(4);
+    const oc10 = buildOutletCondPay(4);
+
+    const [statusRaw, payRows, methodRows, chartRaw, topServices, topCustomers, topStaffPrimary] = await Promise.all([
+      // Status breakdown
+      db.$queryRawUnsafe<any[]>(`
+        SELECT o.status, COUNT(*) AS order_count, COALESCE(SUM(o.total_harga), 0) AS total_amount
+        FROM orders o
+        WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 ${oc4.clause}
+        GROUP BY o.status
+      `, tenantId, startDate, endDate, ...oc4.params),
+      // Payment breakdown
+      db.$queryRawUnsafe<any[]>(`
+        SELECT COALESCE(pay.status_pembayaran, 'pending') AS payment_status,
+               COUNT(o.id) AS order_count,
+               COALESCE(SUM(o.total_harga), 0) AS total_amount
+        FROM orders o
+        LEFT JOIN LATERAL (
+          SELECT p.status_pembayaran FROM payments p WHERE p.order_id = o.id ORDER BY p.id DESC LIMIT 1
+        ) pay ON TRUE
+        WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3
+          AND o.status != 'dibatalkan' ${oc5.clause}
+        GROUP BY COALESCE(pay.status_pembayaran, 'pending')
+      `, tenantId, startDate, endDate, ...oc5.params),
+      // Payment methods
+      db.$queryRawUnsafe<any[]>(`
+        SELECT COALESCE(pay.metode_pembayaran::text, 'belum_dicatat') AS payment_method,
+               COUNT(o.id) AS order_count,
+               COALESCE(SUM(o.total_harga), 0) AS total_amount
+        FROM orders o
+        LEFT JOIN LATERAL (
+          SELECT p.status_pembayaran, p.metode_pembayaran FROM payments p WHERE p.order_id = o.id ORDER BY p.id DESC LIMIT 1
+        ) pay ON TRUE
+        WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3
+          AND o.status != 'dibatalkan' AND pay.status_pembayaran = 'lunas' ${oc6.clause}
+        GROUP BY COALESCE(pay.metode_pembayaran::text, 'belum_dicatat')
+        ORDER BY total_amount DESC LIMIT 5
+      `, tenantId, startDate, endDate, ...oc6.params),
+      // Chart data
+      db.$queryRawUnsafe<any[]>(`
+        SELECT (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date AS order_date,
+               COUNT(CASE WHEN o.status != 'dibatalkan' THEN 1 END) AS daily_orders,
+               COALESCE(SUM(CASE WHEN o.status != 'dibatalkan' THEN o.total_harga ELSE 0 END), 0) AS daily_revenue
+        FROM orders o
+        WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 ${oc7.clause}
+        GROUP BY (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date
+        ORDER BY (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date ASC
+      `, tenantId, startDate, endDate, ...oc7.params),
+      // Top services
+      db.$queryRawUnsafe<any[]>(`
+        SELECT s.nama_layanan, COUNT(od.id) AS count, COALESCE(SUM(od.subtotal), 0) AS total
+        FROM order_details od
+        JOIN services s ON od.service_id = s.id
+        JOIN orders o ON od.order_id = o.id
+        WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 AND o.status != 'dibatalkan' ${oc8.clause}
+        GROUP BY s.nama_layanan ORDER BY total DESC LIMIT 5
+      `, tenantId, startDate, endDate, ...oc8.params),
+      // Top customers
+      db.$queryRawUnsafe<any[]>(`
+        SELECT c.nama, COUNT(o.id) AS count, COALESCE(SUM(o.total_harga), 0) AS total_spent
+        FROM orders o JOIN customers c ON o.customer_id = c.id
+        WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 AND o.status != 'dibatalkan' ${oc9.clause}
+        GROUP BY c.nama ORDER BY total_spent DESC LIMIT 5
+      `, tenantId, startDate, endDate, ...oc9.params),
+      // Top staff (primary: by payment confirmation)
+      db.$queryRawUnsafe<any[]>(`
+        SELECT u.nama, COUNT(p.id) AS count, COALESCE(SUM(p.jumlah_bayar), 0) AS total_confirmed
+        FROM payments p
+        JOIN users u ON p.dikonfirmasi_oleh = u.id
+        JOIN orders o ON p.order_id = o.id
+        WHERE p.tenant_id = $1
+          AND (COALESCE(p.tgl_pembayaran, o.tgl_order) AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3
+          AND p.status_pembayaran = 'lunas' ${oc10.clause}
+        GROUP BY u.nama ORDER BY total_confirmed DESC LIMIT 5
+      `, tenantId, startDate, endDate, ...oc10.params),
+    ]);
 
     const statusIndex: any = {};
     for (const r of statusRaw) statusIndex[r.status] = r;
@@ -341,21 +417,6 @@ export const getReports = async (req: AuthRequest, res: Response) => {
       };
     });
 
-    // --- Payment breakdown ---
-    const oc5 = buildOutletCond(4);
-    const payRows = await db.$queryRawUnsafe<any[]>(`
-      SELECT COALESCE(pay.status_pembayaran, 'pending') AS payment_status,
-             COUNT(o.id) AS order_count,
-             COALESCE(SUM(o.total_harga), 0) AS total_amount
-      FROM orders o
-      LEFT JOIN LATERAL (
-        SELECT p.status_pembayaran FROM payments p WHERE p.order_id = o.id ORDER BY p.id DESC LIMIT 1
-      ) pay ON TRUE
-      WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3
-        AND o.status != 'dibatalkan' ${oc5.clause}
-      GROUP BY COALESCE(pay.status_pembayaran, 'pending')
-    `, tenantId, startDate, endDate, ...oc5.params);
-
     const payIndex: any = {};
     for (const r of payRows) payIndex[r.payment_status] = r;
 
@@ -371,40 +432,12 @@ export const getReports = async (req: AuthRequest, res: Response) => {
       };
     });
 
-    // --- Payment methods ---
-    const oc6 = buildOutletCond(4);
-    const methodRows = await db.$queryRawUnsafe<any[]>(`
-      SELECT COALESCE(pay.metode_pembayaran::text, 'belum_dicatat') AS payment_method,
-             COUNT(o.id) AS order_count,
-             COALESCE(SUM(o.total_harga), 0) AS total_amount
-      FROM orders o
-      LEFT JOIN LATERAL (
-        SELECT p.status_pembayaran, p.metode_pembayaran FROM payments p WHERE p.order_id = o.id ORDER BY p.id DESC LIMIT 1
-      ) pay ON TRUE
-      WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3
-        AND o.status != 'dibatalkan' AND pay.status_pembayaran = 'lunas' ${oc6.clause}
-      GROUP BY COALESCE(pay.metode_pembayaran::text, 'belum_dicatat')
-      ORDER BY total_amount DESC LIMIT 5
-    `, tenantId, startDate, endDate, ...oc6.params);
-
     const paymentMethods = methodRows.map(r => ({
       payment_method: r.payment_method,
       order_count: Number(r.order_count || 0),
       total_amount: Number(r.total_amount || 0),
       percentage: grossRevenue > 0 ? (Number(r.total_amount) / grossRevenue) * 100 : 0,
     }));
-
-    // --- Chart data ---
-    const oc7 = buildOutletCond(4);
-    const chartRaw = await db.$queryRawUnsafe<any[]>(`
-      SELECT (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date AS order_date,
-             COUNT(CASE WHEN o.status != 'dibatalkan' THEN 1 END) AS daily_orders,
-             COALESCE(SUM(CASE WHEN o.status != 'dibatalkan' THEN o.total_harga ELSE 0 END), 0) AS daily_revenue
-      FROM orders o
-      WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 ${oc7.clause}
-      GROUP BY (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date
-      ORDER BY (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date ASC
-    `, tenantId, startDate, endDate, ...oc7.params);
 
     const chartIndex: any = {};
     for (const r of chartRaw) {
@@ -422,40 +455,8 @@ export const getReports = async (req: AuthRequest, res: Response) => {
       cursor.setDate(cursor.getDate() + 1);
     }
 
-    // --- Top services ---
-    const oc8 = buildOutletCond(4);
-    const topServices = await db.$queryRawUnsafe<any[]>(`
-      SELECT s.nama_layanan, COUNT(od.id) AS count, COALESCE(SUM(od.subtotal), 0) AS total
-      FROM order_details od
-      JOIN services s ON od.service_id = s.id
-      JOIN orders o ON od.order_id = o.id
-      WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 AND o.status != 'dibatalkan' ${oc8.clause}
-      GROUP BY s.nama_layanan ORDER BY total DESC LIMIT 5
-    `, tenantId, startDate, endDate, ...oc8.params);
-
-    // --- Top customers ---
-    const oc9 = buildOutletCond(4);
-    const topCustomers = await db.$queryRawUnsafe<any[]>(`
-      SELECT c.nama, COUNT(o.id) AS count, COALESCE(SUM(o.total_harga), 0) AS total_spent
-      FROM orders o JOIN customers c ON o.customer_id = c.id
-      WHERE o.tenant_id = $1 AND (o.tgl_order AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3 AND o.status != 'dibatalkan' ${oc9.clause}
-      GROUP BY c.nama ORDER BY total_spent DESC LIMIT 5
-    `, tenantId, startDate, endDate, ...oc9.params);
-
-    // --- Top staff ---
-    // Primary: staff who confirmed payments (dikonfirmasi_oleh)
-    // Fallback: staff by outlet orders processed (when no payment confirmation data yet)
-    const oc10 = buildOutletCondPay(4);
-    let topStaff = await db.$queryRawUnsafe<any[]>(`
-      SELECT u.nama, COUNT(p.id) AS count, COALESCE(SUM(p.jumlah_bayar), 0) AS total_confirmed
-      FROM payments p
-      JOIN users u ON p.dikonfirmasi_oleh = u.id
-      JOIN orders o ON p.order_id = o.id
-      WHERE p.tenant_id = $1
-        AND (COALESCE(p.tgl_pembayaran, o.tgl_order) AT TIME ZONE 'Asia/Makassar')::date BETWEEN $2 AND $3
-        AND p.status_pembayaran = 'lunas' ${oc10.clause}
-      GROUP BY u.nama ORDER BY total_confirmed DESC LIMIT 5
-    `, tenantId, startDate, endDate, ...oc10.params);
+    // --- Top staff fallbacks (depend on batch 2 result) ---
+    let topStaff = topStaffPrimary;
 
     // If no payment confirmation data exists, fall back to staff performance by orders in their outlet
     if (topStaff.length === 0) {
