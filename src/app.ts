@@ -27,7 +27,6 @@ import { getLandingStats } from './controllers/publicController';
 import { maintenanceMiddleware } from './middlewares/maintenanceMiddleware';
 import { setCsrfCookie, verifyCsrf } from './middlewares/csrfMiddleware';
 import { authenticateToken } from './middlewares/authMiddleware';
-import { getExpenses, addExpense, updateExpense, deleteExpense } from './controllers/financeController';
 import { listBlogArticles, getBlogArticle, triggerGenerate } from './controllers/blogController';
 import { isDbHealthy } from './config/db';
 
@@ -131,11 +130,9 @@ app.get('/api/v1/public/blog/:slug', getBlogArticle);
 import { proxyMedia } from './controllers/mediaProxyController';
 app.get('/api/v1/public/media/*path', proxyMedia);
 
-// Expense alias routes
-app.get('/api/v1/expenses', authenticateToken, getExpenses);
-app.post('/api/v1/expenses', authenticateToken, addExpense);
-app.put('/api/v1/expenses', authenticateToken, updateExpense);
-app.delete('/api/v1/expenses', authenticateToken, deleteExpense);
+// Expense routes (extracted to dedicated router for architectural consistency)
+import expenseRoutes from './routes/expenseRoutes';
+app.use('/api/v1/expenses', verifyCsrf, expenseRoutes);
 
 // Health check
 app.get('/api/v1/health', async (req: Request, res: Response) => {
