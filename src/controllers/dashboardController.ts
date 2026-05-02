@@ -111,11 +111,18 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
       ORDER BY (tgl_order AT TIME ZONE 'UTC' AT TIME ZONE '${tz}')::date ASC
     `, tenantId, ...oc5.params);
 
+    const getTenantDateString = (dateObj: Date): string => {
+      const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
+      return formatter.format(dateObj);
+    };
+
     const chart_data: any[] = [];
     for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
+      // Create a date object offset by i days from now (in UTC, but it's just for math)
+      // Actually, standard JS date math is safe if we format it to the target timezone right after.
+      // Wait, 1 day = 86400000 ms. We can just subtract ms to avoid local timezone math issues.
+      const d = new Date(Date.now() - i * 86400000);
+      const dateStr = getTenantDateString(d);
       
       const found = rawChartData.find((r: any) => {
         if (!r.order_date) return false;
@@ -124,8 +131,12 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
         return rDate === dateStr;
       });
 
-      const dayStr = d.toLocaleDateString('en-US', { weekday: 'short' });
-      const labelStr = `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth()+1).toString().padStart(2, '0')}`;
+      const dayStr = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(d);
+      const parts = new Intl.DateTimeFormat('en-CA', { timeZone: tz, month: '2-digit', day: '2-digit' }).formatToParts(d);
+      // formatToParts returns an array of objects like { type: 'month', value: '05' }
+      const m = parts.find(p => p.type === 'month')?.value || '00';
+      const day = parts.find(p => p.type === 'day')?.value || '00';
+      const labelStr = `${day}/${m}`;
 
       chart_data.push({
         day: dayStr,
