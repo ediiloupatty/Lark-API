@@ -194,6 +194,15 @@ export const getReports = async (req: AuthRequest, res: Response) => {
     const role = req.user?.role || '';
     const isAdmin = role === 'admin' || role === 'super_admin' || role === 'owner';
 
+    // Resolve tenant timezone for date-aware queries
+    const VALID_TIMEZONES: Record<string, string> = {
+      'Asia/Jakarta': 'Asia/Jakarta',
+      'Asia/Makassar': 'Asia/Makassar',
+      'Asia/Jayapura': 'Asia/Jayapura',
+    };
+    const tenantRow = await db.tenants.findUnique({ where: { id: tenantId }, select: { timezone: true } });
+    const tz = VALID_TIMEZONES[tenantRow?.timezone || ''] || 'Asia/Makassar';
+
     // Date range: default to current month in tenant timezone
     const getTenantDateString = (dateObj: Date): string => {
       const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -241,14 +250,7 @@ export const getReports = async (req: AuthRequest, res: Response) => {
       return { clause: '', params: [] as any[], nextIdx: pIdx };
     };
 
-    // Resolve tenant timezone for date-aware queries
-    const VALID_TIMEZONES: Record<string, string> = {
-      'Asia/Jakarta': 'Asia/Jakarta',
-      'Asia/Makassar': 'Asia/Makassar',
-      'Asia/Jayapura': 'Asia/Jayapura',
-    };
-    const tenantRow = await db.tenants.findUnique({ where: { id: tenantId }, select: { timezone: true } });
-    const tz = VALID_TIMEZONES[tenantRow?.timezone || ''] || 'Asia/Makassar';
+
 
     // Previous period
     const start = new Date(startDate);
