@@ -323,12 +323,29 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
 
     // [SECURITY FIX] Tenant Boundary Check for Customer
     const parsedCustomerId = parseInt(customer_id);
-    const verifyCust = await db.customers.findFirst({
+    let verifyCust = await db.customers.findFirst({
       where: { id: parsedCustomerId, tenant_id: tenantId, deleted_at: null }
     });
+
+    // [FIX Skenario 4.3] Customer soft-deleted → auto-restore jika order mereferensi-nya
+    // Ini menangani kasus: admin hapus pelanggan di web, tapi karyawan offline
+    // sudah buat pesanan untuk pelanggan tsb. Saat sync, customer di-restore otomatis.
     if (!verifyCust) {
-      console.warn(`[Create Order] IDOR Attempt/Invalid Customer ID: ${customer_id} oleh Tenant ${tenantId}`);
-      return res.status(403).json({ status: 'error', message: 'Pelanggan tidak valid atau tidak ditemukan di toko Anda.' });
+      const deletedCust = await db.customers.findFirst({
+        where: { id: parsedCustomerId, tenant_id: tenantId, deleted_at: { not: null } }
+      });
+      if (deletedCust) {
+        // Auto-restore: clear deleted_at agar pesanan bisa diproses
+        await db.customers.update({
+          where: { id: parsedCustomerId },
+          data: { deleted_at: null, server_version: BigInt(Date.now()) }
+        });
+        verifyCust = { ...deletedCust, deleted_at: null };
+        console.info(`[Create Order] Auto-restored soft-deleted customer ID: ${parsedCustomerId} untuk order sync`);
+      } else {
+        console.warn(`[Create Order] IDOR Attempt/Invalid Customer ID: ${customer_id} oleh Tenant ${tenantId}`);
+        return res.status(403).json({ status: 'error', message: 'Pelanggan tidak valid atau tidak ditemukan di toko Anda.' });
+      }
     }
 
     // [SECURITY FIX] Validate Outlet ID
@@ -424,6 +441,8 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       let totalHarga = 0;
 
       // Insert Items (Layanan)
+      // [FIX Skenario 2.6] Server SELALU menggunakan harga dari DB, bukan dari client.
+      // Jika client mengirim harga yang berbeda (cache stale), server log warning.
       for (const it of items) {
         const sid = parseInt(it.service_id);
         const berat = Number(it.berat || it.qty || 0);
@@ -433,15 +452,26 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
         if (sid > 0 && chargeBasis > 0) {
           const serviceRow = await tx.services.findFirst({
             where: { id: sid, tenant_id: tenantId, is_active: true },
-            select: { harga_per_kg: true, satuan: true }
+            select: { harga_per_kg: true, satuan: true, nama_layanan: true }
           });
-        if (serviceRow) {
-            const price = Number(serviceRow.harga_per_kg);
+          if (serviceRow) {
+            const serverPrice = Number(serviceRow.harga_per_kg);
+            const clientPrice = Number(it.harga || it.price || 0);
+
+            // Deteksi harga stale cache: log warning jika selisih > 1%
+            if (clientPrice > 0 && Math.abs(serverPrice - clientPrice) / serverPrice > 0.01) {
+              console.warn(
+                `[Create Order] Price discrepancy detected for service "${serviceRow.nama_layanan}" (ID: ${sid}): ` +
+                `client sent Rp${clientPrice}, server uses Rp${serverPrice}. ` +
+                `Client may have stale cache. Using server price.`
+              );
+            }
+
             const itemSatuan = it.satuan || serviceRow.satuan || 'kg';
             const durasiJam = it.durasi_jam ? parseInt(it.durasi_jam) : null;
             const durasiLabel = it.durasi_label || null;
             const hargaModifier = Number(it.harga_modifier || 0);
-            const subtotal = (chargeBasis * price) + hargaModifier;
+            const subtotal = (chargeBasis * serverPrice) + hargaModifier;
             totalHarga += subtotal;
 
             await tx.order_details.create({
@@ -450,7 +480,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
                 service_id: sid,
                 jumlah: jumlah > 0 ? jumlah : null,
                 berat: berat > 0 ? berat : null,
-                harga: price,
+                harga: serverPrice,
                 subtotal: subtotal,
                 satuan: itemSatuan,
                 durasi_jam: durasiJam,
