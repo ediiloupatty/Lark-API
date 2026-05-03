@@ -8,14 +8,12 @@
  */
 
 import bcrypt from 'bcrypt';
-import { PrismaClient } from '@prisma/client';
-
-const db = new PrismaClient();
+import { db } from '../config/db';
 
 async function main() {
   const USERNAME = 'ediloupatty';
   const PASSWORD = 'Loupatty143';
-  const ROLE = 'super_admin';
+  const ROLE = 'super_admin' as const;
   const NAMA = 'Edi Loupatty';
 
   // 1. Cek apakah username sudah ada
