@@ -57,10 +57,20 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
          const customerPhone = o.customer_phone || o.no_hp || o.phone || '';
          const orderStatus = o.status || 'diproses';
          const metodeAntar = o.metode_antar || 'antar_sendiri';
-         const paymentStatus = (o.payment_status?.toLowerCase() === 'lunas' || o.status_pembayaran?.toLowerCase() === 'paid') ? 'lunas' : 'pending';
+         // Support semua variasi payment status: lunas, dp, pending
+         const rawPayStatus = (o.payment_status || o.status_pembayaran || '').toLowerCase();
+         let paymentStatus: string;
+         if (rawPayStatus === 'lunas' || rawPayStatus === 'paid') {
+           paymentStatus = 'lunas';
+         } else if (rawPayStatus === 'dp') {
+           paymentStatus = 'dp';
+         } else {
+           paymentStatus = 'pending';
+         }
          const paymentMethod = o.payment_method || o.metode_bayar || 'cash';
          const outletId = o.outlet_id || req.user?.outlet_id;
          const totalAmount = parseFloat(o.total_amount || o.total_harga || 0);
+         const dpAmount = paymentStatus === 'dp' ? parseFloat(o.jumlah_dp || 0) : 0;
          const items = Array.isArray(o.items) ? o.items : (Array.isArray(o.order_details) ? o.order_details : []);
 
          // 1. Handle Customer & Tenant Boundary Check
@@ -238,9 +248,10 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
                   create: [{
                     tenant_id: tenantId,
                     metode_pembayaran: safeMethod,
-                    jumlah_bayar: finalTotalAmount,
+                    jumlah_bayar: paymentStatus === 'dp' && dpAmount > 0 ? dpAmount : finalTotalAmount,
+                    jumlah_dp: paymentStatus === 'dp' && dpAmount > 0 ? dpAmount : null,
                     status_pembayaran: paymentStatus,
-                    ...(paymentStatus === 'lunas' ? { tgl_pembayaran: new Date() } : {}),
+                    ...(paymentStatus === 'lunas' || paymentStatus === 'dp' ? { tgl_pembayaran: new Date() } : {}),
                     outlet_id: safeOutletId
                   }]
                },
