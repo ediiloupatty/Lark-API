@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { db } from '../config/db';
 import { AuthRequest } from '../middlewares/authMiddleware';
 import { sendPushToAdmins, saveNotification } from '../services/firebaseService';
+import { uploadToR2, isR2Configured } from '../services/r2Service';
 
 function extractOrders(input: any): any[] {
   const paths = [
@@ -254,6 +255,22 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
             }
          });
 
+          // ── Upload bukti pembayaran dari offline base64 ──
+          if (o.bukti_pembayaran_base64 && isR2Configured()) {
+            try {
+              const buffer = Buffer.from(o.bukti_pembayaran_base64, 'base64');
+              const fakeFile = { buffer, mimetype: 'image/jpeg', size: buffer.length } as any;
+              const buktiUrl = await uploadToR2(fakeFile, 'payment', tenantId, orderNumber);
+              if (buktiUrl) {
+                await tx.payments.updateMany({
+                  where: { order_id: newOrder.id, tenant_id: tenantId },
+                  data: { bukti_pembayaran: buktiUrl }
+                });
+              }
+            } catch (uploadErr: any) {
+              console.error(`[Sync Push] Failed to upload bukti for ${orderNumber}:`, uploadErr.message);
+            }
+          }
 
          results.push({ offline_id: offlineId, official_order_number: orderNumber, status: 'synced_success' });
          successCount++;
