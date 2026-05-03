@@ -810,6 +810,17 @@ export const payOrder = async (req: AuthRequest, res: Response) => {
         // Non-fatal: pembayaran tetap diproses meski upload gagal
       }
     }
+    // Fallback: bukti_pembayaran_base64 dari offline sync (JSON body, bukan multipart)
+    if (!buktiUrl && req.body.bukti_pembayaran_base64 && isR2Configured()) {
+      try {
+        const buffer = Buffer.from(req.body.bukti_pembayaran_base64, 'base64');
+        const fakeFile = { buffer, mimetype: 'image/jpeg', size: buffer.length } as any;
+        const trackingCode = orderRes[0].tracking_code || `ORD${order_id}`;
+        buktiUrl = await uploadToR2(fakeFile, 'payment', tenantId!, trackingCode);
+      } catch (uploadErr: any) {
+        console.error('[PayOrder] Base64 upload error (non-fatal):', uploadErr.message);
+      }
+    }
 
     const updated = await db.$queryRawUnsafe<any[]>(`
       UPDATE payments SET
