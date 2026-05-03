@@ -34,7 +34,7 @@ export const getOrders = async (req: AuthRequest, res: Response) => {
              o.total_harga, o.status, o.metode_antar, 
              o.estimasi_tanggal, o.estimasi_waktu, o.catatan, o.paket_id, o.alamat_jemput,
              c.nama as nama_pelanggan, c.no_hp, c.alamat as alamat_pelanggan,
-             p.status_pembayaran, p.tgl_pembayaran, p.konfirmasi_pada, p.jumlah_bayar, p.metode_pembayaran as metode_bayar,
+             p.status_pembayaran, p.tgl_pembayaran, p.konfirmasi_pada, p.jumlah_bayar, p.metode_pembayaran as metode_bayar, p.bukti_pembayaran,
              ot.nama as outlet_nama, ot.alamat as outlet_alamat, ot.phone as outlet_phone,
              u.nama as user_nama,
              pf.nama as parfum_nama,
