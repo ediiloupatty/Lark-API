@@ -81,9 +81,21 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
              where: { id: parseInt(customerId), tenant_id: tenantId, deleted_at: null }
            });
            if (!verifyCust) {
-             console.warn(`[Sync Push] IDOR Attempt/Invalid Customer ID: ${customerId} oleh Tenant ${tenantId}`);
-             // Paksa jadi null agar jatuh ke logika pembuatan/pencarian pelanggan lokal di bawah
-             customerId = null; 
+             // [FIX Skenario 4.3] Cek apakah customer soft-deleted → auto-restore
+             const deletedCust = await tx.customers.findFirst({
+               where: { id: parseInt(customerId), tenant_id: tenantId, deleted_at: { not: null } }
+             });
+             if (deletedCust) {
+               await tx.customers.update({
+                 where: { id: parseInt(customerId) },
+                 data: { deleted_at: null, server_version: BigInt(Date.now()) }
+               });
+               console.info(`[Sync Push] Auto-restored soft-deleted customer ID: ${customerId} untuk order sync`);
+             } else {
+               console.warn(`[Sync Push] IDOR Attempt/Invalid Customer ID: ${customerId} oleh Tenant ${tenantId}`);
+               // Paksa jadi null agar jatuh ke logika pembuatan/pencarian pelanggan lokal di bawah
+               customerId = null; 
+             }
            }
          }
 
@@ -157,6 +169,16 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
                  });
                  // [SECURITY FIX] Harga diambil valid dari DB, bukan klien, cegah manipulasi!
                  const serverPrice = serviceInfo ? parseFloat(serviceInfo.harga_per_kg || 0) : parseFloat(item.price || item.harga || 0);
+                 const clientPrice = parseFloat(item.price || item.harga || 0);
+
+                 // [FIX Skenario 2.6] Deteksi harga stale cache dan log warning
+                 if (serviceInfo && clientPrice > 0 && Math.abs(serverPrice - clientPrice) / serverPrice > 0.01) {
+                   console.warn(
+                     `[Sync Push] Price discrepancy for service ID ${serviceId}: ` +
+                     `client Rp${clientPrice} vs server Rp${serverPrice}. Using server price.`
+                   );
+                 }
+
                  const subtotal = chargeBasis * serverPrice;
                  serverCalculatedTotal += subtotal;
 
