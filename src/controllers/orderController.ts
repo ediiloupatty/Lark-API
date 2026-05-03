@@ -364,6 +364,23 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
 
     const trackingCode = generateTrackingCode();
 
+    // ── Upload bukti pembayaran (opsional) ──
+    let buktiUrl: string | null = null;
+    if (req.body.bukti_pembayaran_base64 && isR2Configured()) {
+      try {
+        const base64Data = req.body.bukti_pembayaran_base64;
+        const buffer = Buffer.from(base64Data, 'base64');
+        const fakeFile = {
+          buffer,
+          mimetype: 'image/jpeg',
+          size: buffer.length
+        } as any;
+        buktiUrl = await uploadToR2(fakeFile, 'payment', tenantId!, trackingCode);
+      } catch (err: any) {
+        console.error('[CreateOrder] Failed to upload bukti_pembayaran:', err.message);
+      }
+    }
+
     // ── Estimation logic ──
     // If paket_id is provided, use estimasi from client (existing flow).
     // If paket_id is NOT provided (per-item duration mode), compute from longest item durasi_jam.
@@ -541,7 +558,8 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
           jumlah_dp: dpValue,
           status_pembayaran: payStatus as any,
           ...(isPayNow ? { tgl_pembayaran: new Date() } : {}),
-          outlet_id: safeOutletId
+          outlet_id: safeOutletId,
+          ...(buktiUrl ? { bukti_pembayaran: buktiUrl } : {})
         }
       });
 
