@@ -561,6 +561,7 @@ export async function sendWhatsApp(opts: SendWAOptions): Promise<void> {
 
 /**
  * Template: New order notification.
+ * Includes payment status: Lunas / DP / Belum Bayar
  */
 export function buildNewOrderMessage(data: {
   nama_toko: string;
@@ -569,48 +570,79 @@ export function buildNewOrderMessage(data: {
   total_harga: number;
   estimasi_tanggal: string;
   layanan_nama?: string;
+  status_bayar?: string;
+  jumlah_dp?: number | null;
 }): string {
   const total = Math.round(data.total_harga).toLocaleString('id-ID');
   const estimasi = data.estimasi_tanggal
     ? new Date(data.estimasi_tanggal).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })
     : '-';
 
+  // Format status pembayaran
+  let bayarLine = '';
+  if (data.status_bayar === 'lunas') {
+    bayarLine = `• Pembayaran : *Lunas* ✅\n`;
+  } else if (data.status_bayar === 'dp' && data.jumlah_dp) {
+    const dp = Math.round(data.jumlah_dp).toLocaleString('id-ID');
+    const sisa = Math.round(data.total_harga - data.jumlah_dp).toLocaleString('id-ID');
+    bayarLine = `• Pembayaran : *DP Rp ${dp}* (sisa Rp ${sisa})\n`;
+  } else {
+    bayarLine = `• Pembayaran : *Belum Bayar*\n`;
+  }
+
   return (
-    `🧺 *${data.nama_toko}* — Pesanan Diterima!\n\n` +
+    `🧺 *${data.nama_toko}*\n\n` +
     `Halo *${data.nama_pelanggan}*,\n` +
     `Pesanan laundry Anda telah kami terima.\n\n` +
     `📋 *Detail Pesanan:*\n` +
     `• No. Nota  : *${data.tracking_code}*\n` +
     (data.layanan_nama ? `• Layanan   : ${data.layanan_nama}\n` : '') +
     `• Total     : *Rp ${total}*\n` +
+    bayarLine +
     `• Est. Selesai: *${estimasi}*\n\n` +
     `Kami akan informasikan kembali saat cucian siap diambil. 🙏`
   );
 }
 
 /**
- * Template: Status update notification.
+ * Template: Status update — hanya dikirim saat siap_diambil / siap_diantar.
+ * Includes payment info jika ada sisa bayar (DP).
  */
 export function buildStatusUpdateMessage(data: {
   nama_toko: string;
   nama_pelanggan: string;
   tracking_code: string;
   status: string;
+  status_bayar?: string;
+  sisa_bayar?: number;
+  total_harga?: number;
 }): string {
   const statusText: Record<string, string> = {
     siap_diambil: '✅ *Cucian Anda sudah selesai dan siap diambil!*',
-    siap_diantar: '🚚 *Cucian Anda sedang dalam perjalanan!*',
-    selesai:      '🎉 *Terima kasih! Pesanan Anda telah selesai.*',
+    siap_diantar: '🚚 *Cucian Anda sedang dikirim ke alamat Anda!*',
   };
 
   const msg = statusText[data.status];
   if (!msg) return '';
 
+  // Info pembayaran
+  let bayarInfo = '';
+  if (data.status_bayar === 'lunas') {
+    bayarInfo = `💰 Pembayaran: *Lunas* ✅\n`;
+  } else if (data.status_bayar === 'dp' && data.sisa_bayar && data.sisa_bayar > 0) {
+    const sisa = Math.round(data.sisa_bayar).toLocaleString('id-ID');
+    bayarInfo = `💰 Sisa pembayaran: *Rp ${sisa}* (mohon disiapkan saat pengambilan)\n`;
+  } else if (data.status_bayar === 'pending') {
+    const total = data.total_harga ? Math.round(data.total_harga).toLocaleString('id-ID') : '0';
+    bayarInfo = `💰 Total: *Rp ${total}* (belum bayar, mohon disiapkan saat pengambilan)\n`;
+  }
+
   return (
     `🧺 *${data.nama_toko}*\n\n` +
     `Halo *${data.nama_pelanggan}*,\n` +
     `${msg}\n\n` +
-    `📋 No. Nota: *${data.tracking_code}*\n\n` +
+    `📋 No. Nota: *${data.tracking_code}*\n` +
+    (bayarInfo ? `${bayarInfo}\n` : '\n') +
     `Terima kasih telah mempercayai kami! 🙏`
   );
 }
