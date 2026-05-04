@@ -223,29 +223,47 @@ backend-node/
 │   │   ├── financeController.ts         #   Financial reports, expenses
 │   │   ├── dashboardController.ts       #   Analytics & KPI dashboard
 │   │   ├── settingsController.ts        #   Tenant configuration
-│   │   ├── profileController.ts         #   User profile management
+│   │   ├── profileController.ts         #   User profile + tenant setup (complete-setup)
 │   │   ├── packageController.ts         #   Subscription packages
 │   │   ├── notificationController.ts    #   Push & WhatsApp notifications
 │   │   ├── blogController.ts            #   Blog articles (public API)
 │   │   ├── publicController.ts          #   Health check, public info
+│   │   ├── parfumController.ts          #   Parfum/fragrance catalog
+│   │   ├── productController.ts         #   Additional product catalog
+│   │   ├── paymentController.ts         #   Payment processing & proof upload
+│   │   ├── mediaProxyController.ts      #   Proxied media/image delivery
+│   │   ├── whatsappController.ts        #   WhatsApp gateway management
+│   │   ├── trackingController.ts        #   Public order tracking
+│   │   ├── sysAdminController.ts        #   Super admin panel (tenants, users, blog CRUD)
 │   │   ├── syncPushController.ts        #   Mobile → Server sync
 │   │   └── syncPullController.ts        #   Server → Mobile sync
 │   │
 │   ├── routes/                          # Route definitions
-│   │   ├── authRoutes.ts
-│   │   ├── blogRoutes.ts
-│   │   └── syncRoutes.ts
+│   │   ├── authRoutes.ts                #   Auth (login, register, OAuth, reset)
+│   │   ├── blogRoutes.ts                #   Public blog endpoints
+│   │   ├── syncRoutes.ts                #   Mobile sync + tenant setup
+│   │   ├── expenseRoutes.ts             #   Expense CRUD
+│   │   ├── paymentRoutes.ts             #   Payment processing
+│   │   ├── whatsappRoutes.ts            #   WhatsApp gateway API
+│   │   ├── trackingRoutes.ts            #   Public order tracking
+│   │   └── sysAdminRoutes.ts            #   Super admin routes
 │   │
 │   ├── middlewares/                      # Express middleware
 │   │   ├── authMiddleware.ts            #   JWT validation & tenant isolation
+│   │   ├── authorizeRole.ts             #   Role-based access control (RBAC)
 │   │   ├── rateLimiter.ts               #   IP-based rate limiting
-│   │   └── maintenanceMiddleware.ts     #   Maintenance mode gate
+│   │   ├── maintenanceMiddleware.ts     #   Maintenance mode gate (super admin bypass)
+│   │   ├── subscriptionGuard.ts         #   Subscription enforcement (trial/expired)
+│   │   ├── csrfMiddleware.ts            #   CSRF protection
+│   │   └── uploadMiddleware.ts          #   File upload handling (multer)
 │   │
 │   ├── services/                        # External service integrations
 │   │   ├── SyncService.ts               #   Offline-first sync engine
 │   │   ├── firebaseService.ts           #   FCM push notifications
-│   │   ├── whatsappService.ts           #   Fonnte WhatsApp API
-│   │   └── blogGeneratorService.ts      #   AI-powered blog generator
+│   │   ├── whatsappService.ts           #   WhatsApp API (Fonnte gateway)
+│   │   ├── blogGeneratorService.ts      #   AI-powered blog generator
+│   │   ├── ipaymuService.ts             #   iPaymu payment gateway integration
+│   │   └── r2Service.ts                 #   Cloudflare R2 object storage
 │   │
 │   ├── scripts/
 │   │   └── generateBlog.ts              #   Standalone cron script
@@ -313,12 +331,38 @@ All protected endpoints require `Authorization: Bearer <JWT>` header.
 | `GET` | `/dashboard` | Analytics & KPI data | ✓ |
 | `GET` | `/finance/*` | Financial reports | ✓ |
 
+### Payments
+
+| Method | Endpoint | Description | Auth |
+|:---|:---|:---|:---:|
+| `GET` | `/payments` | List payments (paginated) | ✓ |
+| `POST` | `/payments` | Record payment (supports DP, base64 proof) | ✓ |
+| `PATCH` | `/payments/:id/approve` | Approve/reject payment | ✓ |
+
+### WhatsApp Gateway
+
+| Method | Endpoint | Description | Auth |
+|:---|:---|:---|:---:|
+| `GET` | `/whatsapp/status` | Check gateway connection status | ✓ |
+| `POST` | `/whatsapp/send` | Send message via gateway | ✓ |
+| `POST` | `/whatsapp/send-auto` | Auto-send order notification | ✓ |
+
 ### Mobile Sync (Offline-First)
 
 | Method | Endpoint | Description | Auth |
 |:---|:---|:---|:---:|
 | `POST` | `/sync/push` | Mobile → Server data push | ✓ |
 | `GET` | `/sync/pull` | Server → Mobile data pull | ✓ |
+| `POST` | `/sync/complete-setup` | First-time tenant setup (nama_toko) | ✓ |
+
+### Super Admin
+
+| Method | Endpoint | Description | Auth |
+|:---|:---|:---|:---:|
+| `GET` | `/sysadmin/tenants` | List all tenants with stats | ✓ (super_admin) |
+| `GET` | `/sysadmin/users` | List all users | ✓ (super_admin) |
+| `POST` | `/sysadmin/maintenance` | Toggle maintenance mode | ✓ (super_admin) |
+| `GET/POST/PUT/DELETE` | `/sysadmin/blog/*` | Blog CMS management | ✓ (super_admin) |
 
 ### Public
 
@@ -327,6 +371,7 @@ All protected endpoints require `Authorization: Bearer <JWT>` header.
 | `GET` | `/health` | Health check / readiness probe | ✗ |
 | `GET` | `/blog` | List blog articles (paginated) | ✗ |
 | `GET` | `/blog/:slug` | Blog article by slug | ✗ |
+| `GET` | `/track/:kode` | Public order tracking by code | ✗ |
 
 ---
 
@@ -433,10 +478,14 @@ Orders follow a strict, auditable state machine. Every transition is logged in `
 | **Password** | bcrypt (12 rounds) | Salted hash storage |
 | **HTTP Headers** | Helmet.js | HSTS, X-Frame-Options, CSP, etc. |
 | **CORS** | Whitelist-only | No wildcard `*` origins |
+| **CSRF** | Custom middleware | Token-based CSRF protection |
 | **Rate Limiting** | Nginx + Express | Auth: 3 req/s, API: 10 req/s |
 | **SQL Injection** | Prisma ORM | Parameterized queries (prepared statements) |
 | **Input Validation** | Controller-level | All user input sanitized before processing |
 | **Tenant Isolation** | Middleware | Every query scoped to `tenant_id` from JWT |
+| **Role Authorization** | `authorizeRole` middleware | RBAC: owner, admin, karyawan, super_admin |
+| **Subscription Guard** | `subscriptionGuard` middleware | Blocks expired tenants (soft degradation) |
+| **Maintenance Mode** | `maintenanceMiddleware` | Super admin bypass, blocks all other users |
 | **Audit Trail** | `audit_logs` + `order_status_logs` | Every mutation logged with actor + timestamp |
 
 ---
@@ -566,6 +615,35 @@ npx tsx src/scripts/generateBlog.ts
 | `npx prisma migrate dev` | Create new migration |
 | `npx prisma migrate deploy` | Apply pending migrations |
 | `npx prisma studio` | Open Prisma database GUI |
+
+---
+
+## Changelog
+
+### v1.2.0 — Tenant Branding + SaaS Features (May 2026)
+
+- **Tenant Branding** — flexible `nama_toko` field in registration (no hardcoded "Laundry" suffix)
+- **Onboarding Setup** — `POST /sync/complete-setup` for Google sign-in users to finalize business identity
+- **`needs_setup` Flag** — login/Google responses include setup status for client-side onboarding
+- **Subscription Enforcement** — `subscriptionGuard` middleware with 14-day trial + soft degradation
+- **Maintenance Mode** — toggle via super admin, super admin bypasses maintenance gate
+- **Super Admin Panel** — tenant management, user list, blog CMS, maintenance toggle
+- **WhatsApp Gateway** — manual + automated message sending via Fonnte API
+- **Payment Proof Upload** — base64 bukti_pembayaran in offline sync push
+- **Order Tracking** — public `/track/:kode` endpoint for customer tracking page
+- **Parfum & Product** — additional catalog controllers for parfum/fragrance and products
+- **iPaymu Integration** — payment gateway service
+- **R2 Storage** — Cloudflare R2 for backup and media storage
+- **RBAC Middleware** — `authorizeRole` for fine-grained role-based access control
+- **CSRF Protection** — custom CSRF middleware
+- **File Upload** — multer-based upload middleware
+
+### v1.1.0 — PRD Perbaikan Fundamental (Apr 2026)
+
+- **Initial Status "Diterima"** — orders start as `diterima` (not `diproses`)
+- **DP (Partial Deposit)** — 3 payment options: Nanti / DP / Lunas
+- **Weight & Unit Input** — per-item weight (kg) and unit sent with order
+- **Quick-Add Customer** — inline customer registration in POS
 
 ---
 
