@@ -5,6 +5,7 @@ import { pool } from '../config/db';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { invalidateSubscriptionCache } from '../middlewares/subscriptionGuard';
+import { getLatestSnapshot, runHealthCheckWithSnapshot } from '../schedulers/healthMonitor';
 
 export const getGlobalStats = async (req: AuthRequest, res: Response) => {
   try {
@@ -1130,5 +1131,143 @@ export const toggleMaintenanceMode = async (req: AuthRequest, res: Response) => 
   } catch (error: any) {
     console.error('[SysAdmin] toggleMaintenanceMode error:', error);
     return res.status(500).json({ success: false, error: 'Gagal mengubah status maintenance.' });
+  }
+};
+
+/* ═══════════════════════════════════════════════════════
+   SYSTEM HEALTH MONITORING ENDPOINTS
+═══════════════════════════════════════════════════════ */
+
+/**
+ * GET /sys-admin/alerts
+ *
+ * Mengambil daftar system alerts (notifikasi tipe 'system_alert').
+ * Query params: page, limit, unread_only
+ * Response: { alerts, unread_count, total, page, total_pages }
+ */
+export const getSystemAlerts = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    const userId = req.user.user_id;
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string) || 20));
+    const unreadOnly = req.query.unread_only === 'true';
+    const offset = (page - 1) * limit;
+
+    // Count unread alerts (selalu dihitung untuk badge)
+    const unreadCount = await db.notifications.count({
+      where: { user_id: userId, tipe: 'system_alert', is_read: false },
+    });
+
+    // Build where clause
+    const whereClause: any = { user_id: userId, tipe: 'system_alert' };
+    if (unreadOnly) whereClause.is_read = false;
+
+    const [alerts, total] = await Promise.all([
+      db.notifications.findMany({
+        where: whereClause,
+        orderBy: { created_at: 'desc' },
+        skip: offset,
+        take: limit,
+      }),
+      db.notifications.count({ where: whereClause }),
+    ]);
+
+    return res.json({
+      success: true,
+      data: {
+        alerts: alerts.map(a => ({
+          id: a.id,
+          pesan: a.pesan,
+          is_read: a.is_read,
+          created_at: a.created_at,
+        })),
+        unread_count: unreadCount,
+        total,
+        page,
+        total_pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error: any) {
+    console.error('[SysAdmin] getSystemAlerts error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal mengambil system alerts.' });
+  }
+};
+
+/**
+ * POST /sys-admin/alerts/read
+ *
+ * Menandai alert sebagai sudah dibaca.
+ * Body: { alert_ids?: number[], mark_all?: boolean }
+ */
+export const markAlertsRead = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    const userId = req.user.user_id;
+    const { alert_ids, mark_all } = req.body;
+
+    if (mark_all) {
+      // Mark semua system_alert milik user ini
+      await db.notifications.updateMany({
+        where: { user_id: userId, tipe: 'system_alert', is_read: false },
+        data: { is_read: true },
+      });
+    } else if (Array.isArray(alert_ids) && alert_ids.length > 0) {
+      // Mark specific alerts — validasi ownership via user_id
+      const validIds = alert_ids.map((id: any) => parseInt(id)).filter((id: number) => !isNaN(id));
+      if (validIds.length > 0) {
+        await db.notifications.updateMany({
+          where: {
+            id: { in: validIds },
+            user_id: userId,
+            tipe: 'system_alert',
+          },
+          data: { is_read: true },
+        });
+      }
+    } else {
+      return res.status(400).json({ success: false, error: 'Kirim alert_ids (array) atau mark_all: true.' });
+    }
+
+    return res.json({ success: true, message: 'Alert berhasil ditandai telah dibaca.' });
+  } catch (error: any) {
+    console.error('[SysAdmin] markAlertsRead error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal menandai alerts.' });
+  }
+};
+
+/**
+ * GET /sys-admin/health-snapshot
+ *
+ * Return real-time health snapshot (atau snapshot terakhir jika ada).
+ * Data: DB status, memory, frontend, uptime, pool stats.
+ */
+export const getHealthSnapshot = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    // Jika query param fresh=true, jalankan check baru (max 1x per 30 detik)
+    const wantFresh = req.query.fresh === 'true';
+    let snapshot = getLatestSnapshot();
+
+    if (wantFresh || !snapshot) {
+      snapshot = await runHealthCheckWithSnapshot();
+    }
+
+    return res.json({
+      success: true,
+      data: snapshot,
+    });
+  } catch (error: any) {
+    console.error('[SysAdmin] getHealthSnapshot error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal mengambil health snapshot.' });
   }
 };
