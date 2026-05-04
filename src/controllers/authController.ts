@@ -364,7 +364,7 @@ export const registerAdmin = async (req: Request, res: Response) => {
     }
 
     const hashedPw = await hashPassword(password.trim());
-    const slug = (nama.trim() + ' Laundry').toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+    const slug = nama.trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-');
     const role = 'owner'; // equivalent to tenant admin
 
     // Using Prisma transaction for multi-table inserts
@@ -372,7 +372,7 @@ export const registerAdmin = async (req: Request, res: Response) => {
       // 1. Create Tenant
       const tenant = await tx.tenants.create({
         data: {
-          name: nama.trim() + ' Laundry',
+          name: nama.trim(),
           slug: slug,
           address: alamat?.trim() || 'Belum diatur',
           phone: no_hp?.trim() || 'Belum diatur',
@@ -412,7 +412,7 @@ export const registerAdmin = async (req: Request, res: Response) => {
           tenant_id: tenant.id,
           setting_key: 'toko_info',
           setting_value: {
-            nama: nama.trim() + ' Laundry',
+            nama: nama.trim(),
             alamat: alamat?.trim() || 'Belum diatur',
             telepon: no_hp?.trim() || 'Belum diatur',
             email: email?.trim() || 'Belum diatur'
@@ -696,7 +696,7 @@ export const googleLogin = async (req: Request, res: Response) => {
         counter++;
       }
 
-      const baseSlug = (googleName + ' Laundry').toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+      const baseSlug = googleName.toLowerCase().replace(/[^a-z0-9-]+/g, '-');
       let slug = baseSlug;
       let slugSuffix = 1;
       while (await db.tenants.findUnique({ where: { slug: slug } })) {
@@ -708,7 +708,7 @@ export const googleLogin = async (req: Request, res: Response) => {
       const result = await db.$transaction(async (tx) => {
         const tenant = await tx.tenants.create({
           data: {
-            name: googleName + ' Laundry',
+            name: googleName,
             slug,
             address: 'Belum diatur',
             phone: 'Belum diatur',
@@ -747,7 +747,7 @@ export const googleLogin = async (req: Request, res: Response) => {
             tenant_id: tenant.id,
             setting_key: 'toko_info',
             setting_value: {
-              nama: googleName + ' Laundry',
+              nama: googleName,
               alamat: 'Belum diatur',
               telepon: 'Belum diatur',
               email: googleEmail,

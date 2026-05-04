@@ -105,6 +105,18 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
           UPDATE tenants SET name = $1, phone = COALESCE(NULLIF($2, ''), phone), address = COALESCE(NULLIF($3, ''), address)
           WHERE id = $4
         `, nama_toko, no_hp || '', alamat || '', tenantId);
+
+        // Sinkronkan nama ke tenant_settings.toko_info agar nota/struk konsisten
+        const existing = await db.tenant_settings.findFirst({
+          where: { tenant_id: tenantId, setting_key: 'toko_info' }
+        });
+        if (existing) {
+          const val = (existing.setting_value as any) || {};
+          await db.tenant_settings.update({
+            where: { id: existing.id },
+            data: { setting_value: { ...val, nama: nama_toko } }
+          });
+        }
       }
     }
 
