@@ -123,7 +123,7 @@ export async function sendPushToAdmins(params: {
 
 // ── Simpan notifikasi ke database (inbox in-app) ──────────────────
 export async function saveNotification(params: {
-  tenantId: number;
+  tenantId: number | null;
   userId: number;
   orderId?: number;
   tipe: string;
