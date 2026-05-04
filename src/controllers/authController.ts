@@ -19,6 +19,7 @@ const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 hari
+const JWT_EXPIRY = '7d'; // Harus sinkron dengan COOKIE_MAX_AGE
 
 /**
  * Helper: set httpOnly cookie berisi JWT.
@@ -186,7 +187,7 @@ export const loginAdmin = async (req: Request, res: Response) => {
           token_version: user.token_version ?? 0,
         },
         jwtSecret,
-        { expiresIn: '24h' }
+        { expiresIn: JWT_EXPIRY }
       );
 
       // Set httpOnly cookie untuk Web browser (lebih aman dari localStorage)
@@ -297,7 +298,7 @@ export const loginStaff = async (req: Request, res: Response) => {
           token_version: user.token_version ?? 0,
         },
         jwtSecret,
-        { expiresIn: '24h' }
+        { expiresIn: JWT_EXPIRY }
       );
       // Set httpOnly cookie untuk Web browser
       setAuthCookie(res, token);
@@ -831,7 +832,7 @@ export const googleLogin = async (req: Request, res: Response) => {
         token_version: user.token_version ?? 0,
       },
       jwtSecret,
-      { expiresIn: '24h' }
+      { expiresIn: JWT_EXPIRY }
     );
     // Set httpOnly cookie untuk Web browser
     setAuthCookie(res, token);
@@ -978,7 +979,7 @@ export const loginWithMagicToken = async (req: Request, res: Response) => {
       metadata: { ip: ipAddress, user_agent: userAgent },
     });
 
-    // Issue standard 24h JWT
+    // Issue standard JWT
     const newToken = jwt.sign(
       {
         user_id: user.id,
@@ -989,7 +990,7 @@ export const loginWithMagicToken = async (req: Request, res: Response) => {
         token_version: user.token_version ?? 0,
       },
       jwtSecret,
-      { expiresIn: '24h' }
+      { expiresIn: JWT_EXPIRY }
     );
 
     // Set httpOnly cookie untuk Web browser
