@@ -659,7 +659,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       }
     }).catch((e: unknown) => console.error('[Notification] Admin lookup failed:', e));
 
-    // ── Kirim WhatsApp otomatis ke pelanggan via Fonnte (async) ──
+    // ── Kirim WhatsApp otomatis ke pelanggan (hanya saat pesanan diterima) ──
     db.customers.findFirst({ where: { id: parseInt(customer_id), tenant_id: tenantId! } })
       .then(async (cust) => {
         if (!cust?.no_hp) return;
@@ -675,6 +675,8 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
           total_harga: result.totalHarga,
           estimasi_tanggal: req.body.estimasi_tanggal || new Date(Date.now() + 3*24*60*60*1000).toISOString(),
           layanan_nama: svc?.nama_layanan,
+          status_bayar: result.payStatus,
+          jumlah_dp: result.dpValue,
         });
         sendWhatsApp({ tenantId: tenantId!, phone: cust.no_hp, message: msg }).catch((e: unknown) => console.error('[WA] New order send failed:', e));
       })
@@ -773,23 +775,33 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
       message: 'Status pesanan berhasil diperbarui.'
     });
 
-    // ── Kirim WA ke pelanggan saat status berubah (async, tidak block response) ──
-    const WA_NOTIFY_STATUSES = ['siap_diambil', 'siap_diantar', 'selesai'];
+    // ── Kirim WA ke pelanggan saat cucian siap (hanya siap_diambil / siap_diantar) ──
+    // Status 'diproses' dan 'selesai' TIDAK kirim WA agar tidak spam pelanggan.
+    const WA_NOTIFY_STATUSES = ['siap_diambil', 'siap_diantar'];
     if (WA_NOTIFY_STATUSES.includes(status)) {
       db.$queryRawUnsafe<any[]>(
-        `SELECT o.tracking_code, c.no_hp, c.nama as nama_pelanggan, t.name as nama_toko
+        `SELECT o.tracking_code, o.total_harga, c.no_hp, c.nama as nama_pelanggan, t.name as nama_toko,
+                p.status_pembayaran, p.jumlah_dp, p.jumlah_bayar
          FROM orders o
          JOIN customers c ON o.customer_id = c.id
          JOIN tenants t ON o.tenant_id = t.id
-         WHERE o.id = $1`, parseInt(String(id))
+         LEFT JOIN payments p ON p.order_id = o.id AND p.tenant_id = o.tenant_id
+         WHERE o.id = $1
+         ORDER BY p.created_at DESC LIMIT 1`, parseInt(String(id))
       ).then(async (rows) => {
         if (!rows[0]?.no_hp) return;
         const r = rows[0];
+        const totalHarga = Number(r.total_harga || 0);
+        const jumlahDp = Number(r.jumlah_dp || 0);
+        const sisaBayar = r.status_pembayaran === 'dp' ? totalHarga - jumlahDp : 0;
         const msg = buildStatusUpdateMessage({
           nama_toko: r.nama_toko || 'Laundry Kami',
           nama_pelanggan: r.nama_pelanggan || 'Pelanggan',
           tracking_code: r.tracking_code,
           status,
+          status_bayar: r.status_pembayaran || 'pending',
+          sisa_bayar: sisaBayar,
+          total_harga: totalHarga,
         });
         if (msg) sendWhatsApp({ tenantId: tenantId!, phone: r.no_hp, message: msg }).catch((e: unknown) => console.error('[WA] Status update send failed:', e));
       }).catch((e: unknown) => console.error('[WA] Order lookup for status notify failed:', e));
