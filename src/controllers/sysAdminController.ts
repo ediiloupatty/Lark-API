@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import { invalidateSubscriptionCache } from '../middlewares/subscriptionGuard';
 import { getLatestSnapshot, runHealthCheckWithSnapshot } from '../schedulers/healthMonitor';
 import { getErrorStats as getErrorStatsData } from '../middlewares/errorTracker';
+import { saveNotification, sendPushToAdmins } from '../services/firebaseService';
 
 export const getGlobalStats = async (req: AuthRequest, res: Response) => {
   try {
@@ -1290,5 +1291,397 @@ export const getApiErrorStats = async (req: AuthRequest, res: Response) => {
   } catch (error: any) {
     console.error('[SysAdmin] getApiErrorStats error:', error);
     return res.status(500).json({ success: false, error: 'Gagal mengambil error stats.' });
+  }
+};
+
+/* ═══════════════════════════════════════════════════════
+   FITUR 1: BROADCAST NOTIFICATION ke Tenants
+═══════════════════════════════════════════════════════ */
+export const broadcastNotification = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    const { title, message, target, tenant_ids } = req.body;
+
+    if (!message || typeof message !== 'string' || message.trim().length === 0) {
+      return res.status(400).json({ success: false, error: 'Pesan tidak boleh kosong.' });
+    }
+
+    // Tentukan target tenants
+    let targetTenants: { id: number; name: string }[];
+    if (target === 'selected' && Array.isArray(tenant_ids) && tenant_ids.length > 0) {
+      targetTenants = await db.tenants.findMany({
+        where: { id: { in: tenant_ids.map(Number) }, is_active: true },
+        select: { id: true, name: true },
+      });
+    } else {
+      // Default: semua tenant aktif
+      targetTenants = await db.tenants.findMany({
+        where: { is_active: true },
+        select: { id: true, name: true },
+      });
+    }
+
+    if (targetTenants.length === 0) {
+      return res.status(400).json({ success: false, error: 'Tidak ada tenant yang ditargetkan.' });
+    }
+
+    // Cari semua admin user di tenant-tenant tersebut
+    const adminUsers = await db.users.findMany({
+      where: {
+        tenant_id: { in: targetTenants.map(t => t.id) },
+        role: { in: ['admin', 'owner'] },
+        is_active: true,
+        deleted_at: null,
+      },
+      select: { id: true, tenant_id: true },
+    });
+
+    const pesan = title ? `📢 ${title}: ${message}` : `📢 ${message}`;
+
+    // Simpan notifikasi ke setiap admin
+    let notifCount = 0;
+    for (const user of adminUsers) {
+      await saveNotification({
+        tenantId: user.tenant_id,
+        userId: user.id,
+        tipe: 'broadcast',
+        pesan,
+      });
+      notifCount++;
+    }
+
+    // Push notification ke semua targeted tenants
+    for (const tenant of targetTenants) {
+      await sendPushToAdmins({
+        tenantId: tenant.id,
+        title: title || '📢 Pengumuman Lark Laundry',
+        body: message,
+        data: { type: 'broadcast' },
+      }).catch(() => { /* skip push errors */ });
+    }
+
+    // Audit log
+    await db.audit_logs.create({
+      data: {
+        actor_user_id: req.user.user_id,
+        entity_type: 'broadcast',
+        action: 'send_broadcast',
+        metadata: {
+          title, message,
+          target: target || 'all',
+          tenant_count: targetTenants.length,
+          notif_count: notifCount,
+        },
+      },
+    }).catch(() => {});
+
+    return res.json({
+      success: true,
+      data: {
+        tenants_reached: targetTenants.length,
+        notifications_sent: notifCount,
+        tenant_names: targetTenants.map(t => t.name),
+      },
+    });
+  } catch (error: any) {
+    console.error('[SysAdmin] broadcastNotification error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal mengirim broadcast.' });
+  }
+};
+
+/* ═══════════════════════════════════════════════════════
+   FITUR 2: SUBSCRIPTION EXPIRY ALERT
+═══════════════════════════════════════════════════════ */
+export const getExpiringSubscriptions = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    const daysThreshold = parseInt(req.query.days as string) || 7;
+    const thresholdDate = new Date();
+    thresholdDate.setDate(thresholdDate.getDate() + daysThreshold);
+
+    const expiringTenants = await db.tenants.findMany({
+      where: {
+        is_active: true,
+        subscription_plan: { not: 'free' },
+        subscription_until: { lte: thresholdDate, gte: new Date() },
+      },
+      select: {
+        id: true, name: true, slug: true, email: true, phone: true,
+        subscription_plan: true, subscription_until: true,
+        _count: { select: { orders: true, users: true } },
+      },
+      orderBy: { subscription_until: 'asc' },
+    });
+
+    // Juga ambil yang sudah expired (belum dinonaktifkan)
+    const expiredTenants = await db.tenants.findMany({
+      where: {
+        is_active: true,
+        subscription_plan: { not: 'free' },
+        subscription_until: { lt: new Date() },
+      },
+      select: {
+        id: true, name: true, slug: true, email: true,
+        subscription_plan: true, subscription_until: true,
+      },
+      orderBy: { subscription_until: 'asc' },
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        expiring: expiringTenants.map(t => ({
+          ...t,
+          days_remaining: Math.ceil((new Date(t.subscription_until!).getTime() - Date.now()) / 86400000),
+        })),
+        expired: expiredTenants.map(t => ({
+          ...t,
+          days_overdue: Math.ceil((Date.now() - new Date(t.subscription_until!).getTime()) / 86400000),
+        })),
+        summary: {
+          expiring_count: expiringTenants.length,
+          expired_count: expiredTenants.length,
+          threshold_days: daysThreshold,
+        },
+      },
+    });
+  } catch (error: any) {
+    console.error('[SysAdmin] getExpiringSubscriptions error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal mengambil data subscription.' });
+  }
+};
+
+/* ═══════════════════════════════════════════════════════
+   FITUR 3: EXPORT DATA (CSV)
+═══════════════════════════════════════════════════════ */
+export const exportData = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    const type = req.query.type as string; // 'tenants' | 'audit' | 'finance'
+
+    if (type === 'tenants') {
+      const tenants = await db.tenants.findMany({
+        select: {
+          id: true, name: true, slug: true, email: true, phone: true,
+          subscription_plan: true, subscription_until: true, is_active: true, created_at: true,
+          _count: { select: { orders: true, outlets: true, users: true } },
+        },
+        orderBy: { created_at: 'desc' },
+      });
+
+      const csvHeader = 'ID,Nama,Slug,Email,Phone,Plan,Subscription Until,Active,Orders,Outlets,Users,Created At\n';
+      const csvRows = tenants.map(t =>
+        `${t.id},"${t.name}","${t.slug}","${t.email || ''}","${t.phone || ''}",${t.subscription_plan},${t.subscription_until ? new Date(t.subscription_until).toLocaleDateString('id-ID') : '-'},${t.is_active},${t._count.orders},${t._count.outlets},${t._count.users},${t.created_at ? new Date(t.created_at).toLocaleDateString('id-ID') : '-'}`
+      ).join('\n');
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="tenants_export_${new Date().toISOString().slice(0, 10)}.csv"`);
+      return res.send('\uFEFF' + csvHeader + csvRows); // BOM for Excel
+
+    } else if (type === 'audit') {
+      const logs = await db.audit_logs.findMany({
+        take: 1000,
+        orderBy: { created_at: 'desc' },
+        include: {
+          users: { select: { nama: true, role: true } },
+          tenants: { select: { name: true } },
+        },
+      });
+
+      const csvHeader = 'ID,Waktu,User,Role,Tenant,Entity,Action,Detail\n';
+      const csvRows = logs.map(l =>
+        `${l.id},${l.created_at ? new Date(l.created_at).toLocaleString('id-ID') : '-'},"${l.users?.nama || '-'}",${l.users?.role || '-'},"${l.tenants?.name || 'System'}","${l.entity_type}","${l.action}","${JSON.stringify(l.metadata || {}).replace(/"/g, '""').slice(0, 200)}"`
+      ).join('\n');
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="audit_logs_${new Date().toISOString().slice(0, 10)}.csv"`);
+      return res.send('\uFEFF' + csvHeader + csvRows);
+
+    } else if (type === 'finance') {
+      const financeRaw = await db.$queryRaw`
+        SELECT
+          t.id as tenant_id, t.name as tenant_name, t.subscription_plan,
+          COUNT(o.id) as total_orders,
+          SUM(CASE WHEN o.status = 'selesai' THEN o.total_harga ELSE 0 END) as total_revenue,
+          SUM(CASE WHEN o.status = 'selesai' AND o.tgl_order >= NOW() - INTERVAL '30 days' THEN o.total_harga ELSE 0 END) as revenue_30d
+        FROM tenants t
+        LEFT JOIN orders o ON o.tenant_id = t.id
+        WHERE t.is_active = true
+        GROUP BY t.id, t.name, t.subscription_plan
+        ORDER BY total_revenue DESC
+      `;
+
+      const csvHeader = 'Tenant ID,Nama Tenant,Plan,Total Orders,Total Revenue,Revenue 30 Hari\n';
+      const csvRows = (financeRaw as any[]).map(r =>
+        `${r.tenant_id},"${r.tenant_name}",${r.subscription_plan},${r.total_orders},${Number(r.total_revenue) || 0},${Number(r.revenue_30d) || 0}`
+      ).join('\n');
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="finance_export_${new Date().toISOString().slice(0, 10)}.csv"`);
+      return res.send('\uFEFF' + csvHeader + csvRows);
+    }
+
+    return res.status(400).json({ success: false, error: 'Tipe export tidak valid. Gunakan: tenants, audit, finance' });
+  } catch (error: any) {
+    console.error('[SysAdmin] exportData error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal mengekspor data.' });
+  }
+};
+
+/* ═══════════════════════════════════════════════════════
+   FITUR 4: TENANT REVENUE RANKING
+═══════════════════════════════════════════════════════ */
+export const getTenantRevenueRanking = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    const period = (req.query.period as string) || '30d'; // '7d', '30d', '90d', 'all'
+    let interval = "30 days";
+    if (period === '7d') interval = "7 days";
+    else if (period === '90d') interval = "90 days";
+    else if (period === 'all') interval = "10 years";
+
+    const rankingRaw = await pool.query(`
+      SELECT
+        t.id, t.name, t.slug, t.subscription_plan, t.is_active,
+        COUNT(o.id) as total_orders,
+        COALESCE(SUM(CASE WHEN o.status = 'selesai' THEN o.total_harga ELSE 0 END), 0) as total_revenue,
+        COUNT(DISTINCT DATE(o.tgl_order)) as active_days,
+        MAX(o.tgl_order) as last_order_date
+      FROM tenants t
+      LEFT JOIN orders o ON o.tenant_id = t.id
+        AND o.tgl_order >= NOW() - INTERVAL '${interval}'
+      GROUP BY t.id, t.name, t.slug, t.subscription_plan, t.is_active
+      ORDER BY total_revenue DESC
+    `);
+
+    const ranking = rankingRaw.rows.map((r: any, idx: number) => ({
+      rank: idx + 1,
+      id: r.id,
+      name: r.name,
+      slug: r.slug,
+      plan: r.subscription_plan,
+      is_active: r.is_active,
+      total_orders: parseInt(r.total_orders) || 0,
+      total_revenue: parseFloat(r.total_revenue) || 0,
+      active_days: parseInt(r.active_days) || 0,
+      last_order_date: r.last_order_date,
+      avg_daily_revenue: r.active_days > 0 ? Math.round(parseFloat(r.total_revenue) / parseInt(r.active_days)) : 0,
+    }));
+
+    // Summary stats
+    const totalPlatformRevenue = ranking.reduce((s: number, r: any) => s + r.total_revenue, 0);
+    const totalPlatformOrders = ranking.reduce((s: number, r: any) => s + r.total_orders, 0);
+
+    return res.json({
+      success: true,
+      data: {
+        period,
+        ranking,
+        summary: {
+          total_tenants: ranking.length,
+          active_tenants: ranking.filter((r: any) => r.total_orders > 0).length,
+          total_platform_revenue: totalPlatformRevenue,
+          total_platform_orders: totalPlatformOrders,
+        },
+      },
+    });
+  } catch (error: any) {
+    console.error('[SysAdmin] getTenantRevenueRanking error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal mengambil ranking revenue.' });
+  }
+};
+
+/* ═══════════════════════════════════════════════════════
+   FITUR 5: DB BACKUP STATUS
+═══════════════════════════════════════════════════════ */
+export const getBackupStatus = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    // Cek file log backup
+    const fs = await import('fs/promises');
+    const logPath = '/var/log/lark-backup.log';
+    let lastBackup = null;
+    let backupEntries: { timestamp: string; status: string; size?: string; message: string }[] = [];
+
+    try {
+      const logContent = await fs.readFile(logPath, 'utf-8');
+      const lines = logContent.trim().split('\n').filter(Boolean);
+      const recentLines = lines.slice(-20); // Last 20 lines
+
+      for (const line of recentLines) {
+        const isSuccess = line.toLowerCase().includes('success') || line.toLowerCase().includes('uploaded') || line.toLowerCase().includes('selesai');
+        const isError = line.toLowerCase().includes('error') || line.toLowerCase().includes('gagal') || line.toLowerCase().includes('fail');
+
+        // Try extract timestamp from typical log format
+        const tsMatch = line.match(/^(\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2})/);
+        const sizeMatch = line.match(/(\d+\.?\d*\s?[KMGT]?B)/i);
+
+        backupEntries.push({
+          timestamp: tsMatch ? tsMatch[1] : new Date().toISOString().slice(0, 16),
+          status: isError ? 'error' : isSuccess ? 'success' : 'info',
+          size: sizeMatch ? sizeMatch[1] : undefined,
+          message: line.slice(0, 200),
+        });
+      }
+
+      // Determine last successful backup
+      const lastSuccess = backupEntries.filter(e => e.status === 'success').pop();
+      lastBackup = lastSuccess?.timestamp || null;
+    } catch {
+      // Log file not found — backup mungkin belum pernah jalan atau log di-rotate
+    }
+
+    // Cek ukuran database aktual
+    let dbSizeMb = 0;
+    try {
+      const dbSizeResult = await pool.query(`SELECT pg_database_size(current_database()) as size`);
+      dbSizeMb = Math.round(parseInt(dbSizeResult.rows[0].size) / (1024 * 1024));
+    } catch { /* skip */ }
+
+    // Cek crontab schedule
+    let cronSchedule = 'Unknown';
+    try {
+      const { exec } = await import('child_process');
+      const { promisify } = await import('util');
+      const execAsync = promisify(exec);
+      const crontab = await execAsync('crontab -l 2>/dev/null | grep lark-db-backup || echo "not_found"');
+      if (crontab.stdout.includes('lark-db-backup')) {
+        cronSchedule = crontab.stdout.trim();
+      } else {
+        cronSchedule = 'Not scheduled';
+      }
+    } catch {
+      cronSchedule = 'Unable to check';
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        last_backup: lastBackup,
+        db_size_mb: dbSizeMb,
+        cron_schedule: cronSchedule,
+        recent_entries: backupEntries.slice(-10).reverse(),
+        backup_destination: 'R2 Cloudflare',
+        backup_script: '/usr/local/bin/lark-db-backup.sh',
+      },
+    });
+  } catch (error: any) {
+    console.error('[SysAdmin] getBackupStatus error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal mengambil status backup.' });
   }
 };
