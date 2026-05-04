@@ -9,6 +9,7 @@ import { getOutlets, addOutlet, updateOutlet, deleteOutlet } from '../controller
 import { getStaff, addStaff, updateStaff, deleteStaff, toggleStaffStatus, getGlobalPermissions, updateGlobalPermissions, updateStaffPermissions } from '../controllers/staffController';
 import { authenticateToken } from '../middlewares/authMiddleware';
 import { authorizeRole } from '../middlewares/authorizeRole';
+import { subscriptionGuard } from '../middlewares/subscriptionGuard';
 import { getPackages, addPackage, updatePackage, deletePackage } from '../controllers/packageController';
 import { getExpenses, addExpense, updateExpense, deleteExpense, getReports, getPayments, approvePayment } from '../controllers/financeController';
 import { getSettings, updateSettings, getSubscriptions } from '../controllers/settingsController';
@@ -37,7 +38,7 @@ router.post('/change-password', authenticateToken, changePassword);
 
 // ── Customers (semua role boleh akses — karyawan butuh ini untuk input order) ──
 router.get('/customers', authenticateToken, getCustomers);
-router.post('/add-customer', authenticateToken, addCustomer);
+router.post('/add-customer', authenticateToken, subscriptionGuard, addCustomer);
 router.put('/update-customer', authenticateToken, updateCustomer);
 router.post('/delete-customer', authenticateToken, deleteCustomer);
 
@@ -49,7 +50,7 @@ router.delete('/services', authenticateToken, adminOnly, deleteService);
 
 // ── Orders (semua role butuh akses CRUD order) ────────────────
 router.get('/orders', authenticateToken, getOrders);
-router.post('/create-order', authenticateToken, createOrder);
+router.post('/create-order', authenticateToken, subscriptionGuard, createOrder);
 router.post('/update-order-status', authenticateToken, updateOrderStatus);
 router.put('/update-order-status', authenticateToken, updateOrderStatus);
 router.post('/pay-order', authenticateToken, upload.single('bukti'), payOrder);
@@ -58,14 +59,14 @@ router.delete('/delete-order', authenticateToken, deleteOrder);
 
 // ── Outlets (admin only — karyawan tidak boleh kelola outlet) ──
 router.get('/outlets', authenticateToken, getOutlets);
-router.post('/add-outlet', authenticateToken, adminOnly, addOutlet);
+router.post('/add-outlet', authenticateToken, adminOnly, subscriptionGuard, addOutlet);
 router.put('/update-outlet', authenticateToken, adminOnly, updateOutlet);
 router.post('/delete-outlet', authenticateToken, adminOnly, deleteOutlet);
 router.delete('/delete-outlet', authenticateToken, adminOnly, deleteOutlet);
 
 // ── Staff (admin only — karyawan tidak boleh kelola staff lain) ──
 router.get('/staff', authenticateToken, adminOnly, getStaff);
-router.post('/add-staff', authenticateToken, adminOnly, addStaff);
+router.post('/add-staff', authenticateToken, adminOnly, subscriptionGuard, addStaff);
 router.put('/update-staff', authenticateToken, adminOnly, updateStaff);
 router.post('/delete-staff', authenticateToken, adminOnly, deleteStaff);
 router.delete('/delete-staff', authenticateToken, adminOnly, deleteStaff);
