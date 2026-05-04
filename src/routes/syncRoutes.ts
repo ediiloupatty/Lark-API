@@ -15,7 +15,7 @@ import { getExpenses, addExpense, updateExpense, deleteExpense, getReports, getP
 import { getSettings, updateSettings, getSubscriptions } from '../controllers/settingsController';
 import { getProducts, addProduct, updateProduct, deleteProduct, getProductCategories, addProductCategory, deleteProductCategory } from '../controllers/productController';
 import { getParfums, addParfum, updateParfum, deleteParfum } from '../controllers/parfumController';
-import { getProfile, updateProfile, changePassword } from '../controllers/profileController';
+import { getProfile, updateProfile, changePassword, completeSetup } from '../controllers/profileController';
 import { registerToken, unregisterToken, getNotifications, markAllRead, markOneRead } from '../controllers/notificationController';
 import { upload } from '../middlewares/uploadMiddleware';
 
@@ -35,6 +35,7 @@ router.get('/dashboard', authenticateToken, getDashboard);
 router.get('/profile', authenticateToken, getProfile);
 router.post('/profile', authenticateToken, updateProfile);
 router.post('/change-password', authenticateToken, changePassword);
+router.post('/complete-setup', authenticateToken, adminOnly, completeSetup);
 
 // ── Customers (semua role boleh akses — karyawan butuh ini untuk input order) ──
 router.get('/customers', authenticateToken, getCustomers);
