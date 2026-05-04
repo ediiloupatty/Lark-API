@@ -73,6 +73,14 @@ export const updateSettings = async (req: AuthRequest, res: Response) => {
         create: { tenant_id: tenantId, setting_key: key, setting_value: value as any }
       });
       updatedCount++;
+
+      // Sinkronkan toko_info.nama ke tenants.name agar WA, tracking, dan nota konsisten
+      if (key === 'toko_info' && typeof value === 'object' && (value as any).nama) {
+        await db.tenants.update({
+          where: { id: tenantId },
+          data: { name: (value as any).nama }
+        });
+      }
     }
 
     res.json({ status: 'success', message: `Pengaturan berhasil disimpan! (${updatedCount} item diperbarui)` });
