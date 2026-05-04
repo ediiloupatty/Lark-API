@@ -50,3 +50,25 @@ export const logout = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, error: 'Internal Server Error' });
   }
 };
+
+export const sendManualMessage = async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).user?.tenant_id;
+    if (!tenantId) {
+      return res.status(401).json({ success: false, error: 'Unauthorized. Tenant ID missing.' });
+    }
+
+    const { phone, message } = req.body;
+    if (!phone || !message) {
+      return res.status(400).json({ success: false, error: 'Phone and message are required.' });
+    }
+
+    // Call service to send message through queue
+    await WhatsAppService.sendMessage(tenantId, phone, message);
+    
+    return res.json({ success: true, message: 'Pesan telah dimasukkan ke antrean pengiriman WhatsApp otomatis.' });
+  } catch (error: any) {
+    console.error('Error in sendManualMessage:', error);
+    return res.status(500).json({ success: false, error: 'Internal Server Error' });
+  }
+};

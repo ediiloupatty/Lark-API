@@ -3,7 +3,7 @@ import { db } from '../config/db';
 import { AuthRequest } from '../middlewares/authMiddleware';
 import crypto from 'crypto';
 import { sendPushToAdmins, saveNotification } from '../services/firebaseService';
-import { sendWhatsApp, buildNewOrderMessage, buildStatusUpdateMessage } from '../services/whatsappService';
+import { sendWhatsApp, buildNewOrderMessage, buildStatusUpdateMessage, WhatsAppService } from '../services/whatsappService';
 import { uploadToR2, isR2Configured } from '../services/r2Service';
 
 function generateTrackingCode() {
@@ -620,7 +620,9 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
         jumlah_dp: result.dpValue,
         metode_bayar: status_bayar === 'sekarang' ? metode_bayar : null,
         user_nama: req.user?.nama || req.user?.username || 'Karyawan',
-        karyawan_nama: req.user?.nama || req.user?.username || 'Karyawan'
+        karyawan_nama: req.user?.nama || req.user?.username || 'Karyawan',
+        wa_status: WhatsAppService.getStatus(tenantId!).status,
+        no_hp: customer_id ? (await db.customers.findFirst({ where: { id: parseInt(customer_id) } }))?.no_hp : null
       }
     });
 
