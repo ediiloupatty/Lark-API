@@ -64,7 +64,7 @@ async function seedPackages() {
       plan_code: 'months_12' as const,
       nama_paket: '12 Bulan',
       harga: 199000,
-      badge_label: 'Terbaik · Hemat Rp 77.000', // Rp 77.000 lebih hemat vs 12× bulanan
+      badge_label: 'Hemat Rp 77.000', // Rp 77.000 lebih hemat vs 12× bulanan
       deskripsi_singkat: 'Investasi terbaik untuk satu tahun operasional.',
       xendit_link: 'https://edi-loupatty.myr.id/m/larklaundry-12-bulan',
       features: [
