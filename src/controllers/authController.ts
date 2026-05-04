@@ -259,7 +259,10 @@ export const loginStaff = async (req: Request, res: Response) => {
 
     const trimmedStaffCode = staff_code.trim();
 
-    const user = await db.users.findFirst({
+    // SECURITY FIX: findMany instead of findFirst to detect cross-tenant collisions.
+    // If two tenants have staff with the same code, findFirst returns arbitrary results
+    // which could grant access to the wrong tenant's data.
+    const candidates = await db.users.findMany({
       where: { 
         username: trimmedStaffCode,
         role: 'karyawan',
@@ -267,6 +270,23 @@ export const loginStaff = async (req: Request, res: Response) => {
       },
       include: { outlets: true }
     });
+
+    // If multiple matches across tenants → ambiguous, reject login
+    if (candidates.length > 1) {
+      // Check if they belong to different tenants
+      const uniqueTenants = new Set(candidates.map(c => c.tenant_id));
+      if (uniqueTenants.size > 1) {
+        recordFailedLogin(ipAddress);
+        return res.status(409).json({
+          status: 'error',
+          success: false,
+          error: 'ID Akses Kasir ditemukan di beberapa toko. Hubungi admin untuk mendapatkan ID unik.',
+          message: 'ID Akses Kasir ditemukan di beberapa toko. Hubungi admin untuk mendapatkan ID unik.',
+        });
+      }
+    }
+
+    const user = candidates.length > 0 ? candidates[0] : null;
 
     if (user) {
       if (!user.is_active) {
@@ -478,13 +498,14 @@ export const forgotPassword = async (req: Request, res: Response) => {
       },
     });
 
-    // Jika email tidak terdaftar sebagai admin, kembalikan error eksplisit
+    // SECURITY FIX: Jangan membedakan response untuk email yang ada vs tidak ada.
+    // Respons identik mencegah email enumeration attack (OWASP A01:2021).
     if (!user) {
       // Artificial delay agar response time tidak berbeda signifikan (mitigasi timing attack)
       await new Promise(r => setTimeout(r, 400 + Math.random() * 300));
-      return res.status(404).json({
-        status: 'error',
-        message: 'Email tidak terdaftar dalam sistem. Pastikan email yang Anda masukkan benar.',
+      return res.json({
+        status: 'success',
+        message: 'Jika email terdaftar, link reset password akan dikirim ke inbox Anda. Periksa juga folder spam.',
       });
     }
 
