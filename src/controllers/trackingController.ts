@@ -109,8 +109,10 @@ export class TrackingController {
       const inputPhone = phone.replace(/\D/g, '');
       const dbPhone = order.customers?.no_hp?.replace(/\D/g, '') || '';
       
-      // Allow flexible matching (either exact or ends with the last 8 digits)
-      const isMatch = dbPhone === inputPhone || (inputPhone.length >= 8 && dbPhone.endsWith(inputPhone));
+      // SECURITY FIX: Require minimum 10 digits for flexible matching (Indonesian phone = 10-13 digits).
+      // Previously 8 digits was enough, which only requires guessing 2-5 digits (brute-forceable).
+      // With 10 digits minimum, attacker needs near-full phone number to pass verification.
+      const isMatch = dbPhone === inputPhone || (inputPhone.length >= 10 && dbPhone.endsWith(inputPhone));
       
       if (!isMatch) {
         return res.status(401).json({ success: false, message: 'Nomor WhatsApp tidak cocok dengan resi.' });

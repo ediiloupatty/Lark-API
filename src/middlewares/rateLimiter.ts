@@ -89,11 +89,17 @@ export const registerRateLimiter = (req: Request, res: Response, next: NextFunct
     }
   }
 
-  // Increment counter setelah request berhasil diproses
-  const current = registerStore.get(ip);
-  registerStore.set(ip, {
-    attempts: (current?.attempts ?? 0) + 1,
-    lastAttempt: now,
+  // SECURITY FIX: Increment counter hanya setelah registrasi berhasil (2xx response).
+  // Sebelumnya counter naik SEBELUM handler jalan → user sah yang typo password
+  // bisa ter-block selama 1 jam setelah 3 kali gagal validasi.
+  res.on('finish', () => {
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      const current = registerStore.get(ip);
+      registerStore.set(ip, {
+        attempts: (current?.attempts ?? 0) + 1,
+        lastAttempt: Date.now(),
+      });
+    }
   });
 
   next();
