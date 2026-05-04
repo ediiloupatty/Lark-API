@@ -193,6 +193,10 @@ export const loginAdmin = async (req: Request, res: Response) => {
       // Mobile App tetap membaca token dari response body
       setAuthCookie(res, token);
 
+      // Cek apakah tenant sudah pernah setup (punya outlet)
+      const outletCount = await db.outlets.count({ where: { tenant_id: user.tenant_id! } });
+      const needsSetup = outletCount === 0;
+
       return res.status(200).json({
         status: 'success',
         success: true,
@@ -207,7 +211,8 @@ export const loginAdmin = async (req: Request, res: Response) => {
             role: role,
             tenant_id: user.tenant_id,
             outlet_id: user.outlet_id,
-            permissions: typeof user.permissions === 'string' ? JSON.parse(user.permissions) : (user.permissions || {})
+            permissions: typeof user.permissions === 'string' ? JSON.parse(user.permissions) : (user.permissions || {}),
+            needs_setup: needsSetup,
           },
         },
       });
@@ -343,7 +348,7 @@ export const loginStaff = async (req: Request, res: Response) => {
 
 export const registerAdmin = async (req: Request, res: Response) => {
   try {
-    const { username, password, confirm_password, nama, no_hp, email, alamat } = req.body;
+    const { username, password, confirm_password, nama, nama_toko, no_hp, email, alamat } = req.body;
     
     if (!username || !password || !nama) {
       return res.status(400).json({ success: false, error: 'Username, password, dan nama harus diisi!' });
@@ -364,7 +369,8 @@ export const registerAdmin = async (req: Request, res: Response) => {
     }
 
     const hashedPw = await hashPassword(password.trim());
-    const slug = nama.trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+    const tenantName = nama_toko?.trim() || nama.trim();
+    const slug = tenantName.toLowerCase().replace(/[^a-z0-9-]+/g, '-');
     const role = 'owner'; // equivalent to tenant admin
 
     // Using Prisma transaction for multi-table inserts
@@ -372,7 +378,7 @@ export const registerAdmin = async (req: Request, res: Response) => {
       // 1. Create Tenant
       const tenant = await tx.tenants.create({
         data: {
-          name: nama.trim(),
+          name: tenantName,
           slug: slug,
           address: alamat?.trim() || 'Belum diatur',
           phone: no_hp?.trim() || 'Belum diatur',
@@ -412,7 +418,7 @@ export const registerAdmin = async (req: Request, res: Response) => {
           tenant_id: tenant.id,
           setting_key: 'toko_info',
           setting_value: {
-            nama: nama.trim(),
+            nama: tenantName,
             alamat: alamat?.trim() || 'Belum diatur',
             telepon: no_hp?.trim() || 'Belum diatur',
             email: email?.trim() || 'Belum diatur'
@@ -810,6 +816,10 @@ export const googleLogin = async (req: Request, res: Response) => {
     // Set httpOnly cookie untuk Web browser
     setAuthCookie(res, token);
 
+    // Cek apakah tenant sudah pernah setup (punya outlet)
+    const outletCount = await db.outlets.count({ where: { tenant_id: user.tenant_id! } });
+    const needsSetup = outletCount === 0;
+
     return res.status(200).json({
       status: 'success',
       success: true,
@@ -825,7 +835,9 @@ export const googleLogin = async (req: Request, res: Response) => {
           tenant_id: user.tenant_id,
           outlet_id: user.outlet_id,
           permissions: typeof user.permissions === 'string' ? JSON.parse(user.permissions) : (user.permissions || {}),
+          needs_setup: needsSetup,
         },
+        is_new_user: needsSetup,
       },
     });
   } catch (err: any) {

@@ -195,3 +195,76 @@ export const changePassword = async (req: AuthRequest, res: Response) => {
   }
 };
 
+// POST /api/v1/sync/complete-setup
+// Setup awal tenant (nama toko, alamat, telepon) — dipanggil setelah Google sign-in
+export const completeSetup = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.user_id;
+    const tenantId = req.user?.tenant_id;
+    const role = req.user?.role || '';
+    if (!userId || !tenantId) {
+      return res.status(401).json({ status: 'error', message: 'Token tidak valid.' });
+    }
+
+    // Hanya admin/owner yang boleh setup tenant
+    if (!['admin', 'owner', 'super_admin'].includes(role)) {
+      return res.status(403).json({ status: 'error', message: 'Akses ditolak.' });
+    }
+
+    const { nama_toko, alamat_toko, telepon_toko } = req.body;
+
+    if (!nama_toko || (nama_toko as string).trim().length < 2) {
+      return res.status(400).json({ status: 'error', message: 'Nama toko wajib diisi (minimal 2 karakter).' });
+    }
+    if ((nama_toko as string).trim().length > 50) {
+      return res.status(400).json({ status: 'error', message: 'Nama toko maksimal 50 karakter.' });
+    }
+
+    const trimmedName = (nama_toko as string).trim();
+    const trimmedAddress = alamat_toko?.trim() || 'Belum diatur';
+    const trimmedPhone = telepon_toko?.trim() || 'Belum diatur';
+
+    // Update tenants table
+    await db.tenants.update({
+      where: { id: tenantId },
+      data: {
+        name: trimmedName,
+        address: trimmedAddress,
+        phone: trimmedPhone,
+      }
+    });
+
+    // Sinkronkan ke tenant_settings.toko_info
+    await db.tenant_settings.upsert({
+      where: { tenant_id_setting_key: { tenant_id: tenantId, setting_key: 'toko_info' } },
+      update: {
+        setting_value: {
+          nama: trimmedName,
+          alamat: trimmedAddress,
+          telepon: trimmedPhone,
+          email: (req.user as any)?.email || 'Belum diatur',
+        },
+        updated_at: new Date(),
+      },
+      create: {
+        tenant_id: tenantId,
+        setting_key: 'toko_info',
+        setting_value: {
+          nama: trimmedName,
+          alamat: trimmedAddress,
+          telepon: trimmedPhone,
+          email: (req.user as any)?.email || 'Belum diatur',
+        },
+      }
+    });
+
+    res.json({
+      status: 'success',
+      message: 'Setup toko berhasil! Selamat datang di Lark.',
+      data: { nama_toko: trimmedName }
+    });
+  } catch (err: any) {
+    console.error('[CompleteSetup Error]', err);
+    res.status(500).json({ status: 'error', message: 'Gagal menyimpan data toko.' });
+  }
+};
