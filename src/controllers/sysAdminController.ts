@@ -2,6 +2,8 @@ import { Response } from 'express';
 import { AuthRequest } from '../middlewares/authMiddleware';
 import { db } from '../config/db';
 import { pool } from '../config/db';
+import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 
 export const getGlobalStats = async (req: AuthRequest, res: Response) => {
   try {
@@ -517,5 +519,573 @@ export const getGlobalSettings = async (req: AuthRequest, res: Response) => {
   } catch (error: any) {
     console.error('[SysAdminController] getGlobalSettings error:', error);
     return res.status(500).json({ success: false, error: 'Gagal mengambil pengaturan global.' });
+  }
+};
+
+/* ═══════════════════════════════════════════════════════
+   BLOG/CMS MANAGEMENT
+═══════════════════════════════════════════════════════ */
+
+/** GET /sys-admin/blogs — List all blog articles (including drafts), with pagination */
+export const listBlogArticlesAdmin = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 20;
+    const offset = (page - 1) * limit;
+    const search = (req.query.search as string || '').trim();
+    const statusFilter = req.query.status as string || '';
+
+    const client = await pool.connect();
+    try {
+      let whereClause = 'WHERE 1=1';
+      const params: any[] = [];
+      let paramIdx = 1;
+
+      if (statusFilter) {
+        whereClause += ` AND status = $${paramIdx}`;
+        params.push(statusFilter);
+        paramIdx++;
+      }
+      if (search) {
+        whereClause += ` AND (title ILIKE $${paramIdx} OR slug ILIKE $${paramIdx})`;
+        params.push(`%${search}%`);
+        paramIdx++;
+      }
+
+      const countRes = await client.query(`SELECT count(*) as total FROM blog_articles ${whereClause}`, params);
+      const total = parseInt(countRes.rows[0].total, 10);
+
+      const dataRes = await client.query(
+        `SELECT id, slug, title, excerpt, category, status, read_time, created_at, updated_at
+         FROM blog_articles ${whereClause}
+         ORDER BY created_at DESC
+         LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
+        [...params, limit, offset]
+      );
+
+      return res.json({
+        success: true,
+        data: {
+          articles: dataRes.rows,
+          total,
+          page,
+          total_pages: Math.ceil(total / limit),
+        },
+      });
+    } finally {
+      client.release();
+    }
+  } catch (error: any) {
+    console.error('[SysAdmin] listBlogArticlesAdmin error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal mengambil daftar blog.' });
+  }
+};
+
+/** POST /sys-admin/blogs — Create a new blog article */
+export const createBlogArticle = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    const { title, slug, excerpt, content, category, status, read_time } = req.body;
+
+    if (!title || !slug || !excerpt || !content) {
+      return res.status(400).json({ success: false, error: 'Title, slug, excerpt, dan content wajib diisi.' });
+    }
+
+    // Sanitize slug — hanya izinkan alphanumeric + dash
+    const cleanSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    if (!cleanSlug) {
+      return res.status(400).json({ success: false, error: 'Slug tidak valid.' });
+    }
+
+    const client = await pool.connect();
+    try {
+      // Cek slug unik
+      const existing = await client.query('SELECT id FROM blog_articles WHERE slug = $1', [cleanSlug]);
+      if (existing.rows.length > 0) {
+        return res.status(409).json({ success: false, error: `Slug "${cleanSlug}" sudah digunakan.` });
+      }
+
+      const result = await client.query(
+        `INSERT INTO blog_articles (slug, title, excerpt, content, category, status, read_time, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+         RETURNING id, slug, title, status, created_at`,
+        [cleanSlug, title, excerpt, content, category || 'bisnis', status || 'published', read_time || '5 min']
+      );
+
+      await db.audit_logs.create({
+        data: {
+          actor_user_id: req.user.user_id,
+          entity_type: 'blog_article',
+          entity_id: result.rows[0].id,
+          action: 'create_blog',
+          metadata: { title, slug: cleanSlug },
+        },
+      });
+
+      return res.status(201).json({ success: true, message: 'Artikel berhasil dibuat.', data: result.rows[0] });
+    } finally {
+      client.release();
+    }
+  } catch (error: any) {
+    console.error('[SysAdmin] createBlogArticle error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal membuat artikel.' });
+  }
+};
+
+/** PUT /sys-admin/blogs/:id — Update a blog article */
+export const updateBlogArticle = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    const articleId = parseInt(req.params.id as string);
+    if (isNaN(articleId)) {
+      return res.status(400).json({ success: false, error: 'ID tidak valid.' });
+    }
+
+    const { title, slug, excerpt, content, category, status, read_time } = req.body;
+
+    const client = await pool.connect();
+    try {
+      // Cek artikel ada
+      const existing = await client.query('SELECT id FROM blog_articles WHERE id = $1', [articleId]);
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Artikel tidak ditemukan.' });
+      }
+
+      // Jika slug berubah, cek collision
+      if (slug) {
+        const cleanSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+        const collision = await client.query('SELECT id FROM blog_articles WHERE slug = $1 AND id != $2', [cleanSlug, articleId]);
+        if (collision.rows.length > 0) {
+          return res.status(409).json({ success: false, error: `Slug "${cleanSlug}" sudah digunakan.` });
+        }
+      }
+
+      // Build dynamic UPDATE
+      const fields: string[] = [];
+      const values: any[] = [];
+      let idx = 1;
+
+      if (title !== undefined)    { fields.push(`title = $${idx++}`);    values.push(title); }
+      if (slug !== undefined)     { fields.push(`slug = $${idx++}`);     values.push(slug.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')); }
+      if (excerpt !== undefined)  { fields.push(`excerpt = $${idx++}`);  values.push(excerpt); }
+      if (content !== undefined)  { fields.push(`content = $${idx++}`);  values.push(content); }
+      if (category !== undefined) { fields.push(`category = $${idx++}`); values.push(category); }
+      if (status !== undefined)   { fields.push(`status = $${idx++}`);   values.push(status); }
+      if (read_time !== undefined){ fields.push(`read_time = $${idx++}`);values.push(read_time); }
+      fields.push(`updated_at = NOW()`);
+
+      if (fields.length <= 1) {
+        return res.status(400).json({ success: false, error: 'Tidak ada field yang diubah.' });
+      }
+
+      values.push(articleId);
+      await client.query(`UPDATE blog_articles SET ${fields.join(', ')} WHERE id = $${idx}`, values);
+
+      await db.audit_logs.create({
+        data: {
+          actor_user_id: req.user.user_id,
+          entity_type: 'blog_article',
+          entity_id: articleId,
+          action: 'update_blog',
+          metadata: { title, slug },
+        },
+      });
+
+      return res.json({ success: true, message: 'Artikel berhasil diperbarui.' });
+    } finally {
+      client.release();
+    }
+  } catch (error: any) {
+    console.error('[SysAdmin] updateBlogArticle error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal memperbarui artikel.' });
+  }
+};
+
+/** DELETE /sys-admin/blogs/:id — Delete a blog article */
+export const deleteBlogArticle = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    const articleId = parseInt(req.params.id as string);
+    if (isNaN(articleId)) {
+      return res.status(400).json({ success: false, error: 'ID tidak valid.' });
+    }
+
+    const client = await pool.connect();
+    try {
+      const existing = await client.query('SELECT id, title FROM blog_articles WHERE id = $1', [articleId]);
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Artikel tidak ditemukan.' });
+      }
+
+      await client.query('DELETE FROM blog_articles WHERE id = $1', [articleId]);
+
+      await db.audit_logs.create({
+        data: {
+          actor_user_id: req.user.user_id,
+          entity_type: 'blog_article',
+          entity_id: articleId,
+          action: 'delete_blog',
+          metadata: { title: existing.rows[0].title },
+        },
+      });
+
+      return res.json({ success: true, message: 'Artikel berhasil dihapus.' });
+    } finally {
+      client.release();
+    }
+  } catch (error: any) {
+    console.error('[SysAdmin] deleteBlogArticle error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal menghapus artikel.' });
+  }
+};
+
+/* ═══════════════════════════════════════════════════════
+   USER MANAGEMENT
+═══════════════════════════════════════════════════════ */
+
+/** GET /sys-admin/users — List all users across all tenants */
+export const listAllUsers = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 20;
+    const skip = (page - 1) * limit;
+    const search = (req.query.search as string || '').trim();
+    const roleFilter = req.query.role as string || '';
+
+    const whereClause: any = { deleted_at: null };
+    if (roleFilter) whereClause.role = roleFilter as any;
+    if (search) {
+      whereClause.OR = [
+        { nama: { contains: search, mode: 'insensitive' } },
+        { username: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [users, total] = await Promise.all([
+      db.users.findMany({
+        where: whereClause,
+        take: limit,
+        skip,
+        orderBy: { created_at: 'desc' },
+        select: {
+          id: true,
+          username: true,
+          nama: true,
+          email: true,
+          no_hp: true,
+          role: true,
+          is_active: true,
+          auth_provider: true,
+          created_at: true,
+          tenants: { select: { id: true, name: true } },
+          outlets: { select: { id: true, nama: true } },
+        },
+      }),
+      db.users.count({ where: whereClause }),
+    ]);
+
+    return res.json({
+      success: true,
+      data: {
+        users: users.map((u: any) => ({
+          id: u.id,
+          username: u.username,
+          nama: u.nama,
+          email: u.email,
+          no_hp: u.no_hp,
+          role: u.role,
+          is_active: u.is_active,
+          auth_provider: u.auth_provider,
+          tenant_name: u.tenants?.name || null,
+          tenant_id: u.tenants?.id || null,
+          outlet_name: u.outlets?.nama || null,
+          created_at: u.created_at,
+        })),
+        total,
+        page,
+        total_pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error: any) {
+    console.error('[SysAdmin] listAllUsers error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal mengambil daftar user.' });
+  }
+};
+
+/** POST /sys-admin/users/:id/toggle-status — Activate/deactivate a user */
+export const toggleUserStatus = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    const userId = parseInt(req.params.id as string);
+    if (isNaN(userId)) {
+      return res.status(400).json({ success: false, error: 'ID tidak valid.' });
+    }
+
+    // Jangan izinkan disable diri sendiri
+    if (userId === req.user.user_id) {
+      return res.status(400).json({ success: false, error: 'Tidak bisa menonaktifkan akun sendiri.' });
+    }
+
+    const user = await db.users.findUnique({ where: { id: userId }, select: { id: true, is_active: true, nama: true, role: true } });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User tidak ditemukan.' });
+    }
+
+    const newStatus = !user.is_active;
+    await db.users.update({ where: { id: userId }, data: { is_active: newStatus } });
+
+    await db.audit_logs.create({
+      data: {
+        actor_user_id: req.user.user_id,
+        entity_type: 'user',
+        entity_id: userId,
+        action: newStatus ? 'reactivate_user' : 'deactivate_user',
+        metadata: { user_name: user.nama, user_role: user.role },
+      },
+    });
+
+    return res.json({ success: true, message: `User berhasil ${newStatus ? 'diaktifkan' : 'dinonaktifkan'}.` });
+  } catch (error: any) {
+    console.error('[SysAdmin] toggleUserStatus error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal mengubah status user.' });
+  }
+};
+
+/** POST /sys-admin/users/:id/reset-password — Reset user password to a random string */
+export const resetUserPassword = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    const userId = parseInt(req.params.id as string);
+    if (isNaN(userId)) {
+      return res.status(400).json({ success: false, error: 'ID tidak valid.' });
+    }
+
+    const user = await db.users.findUnique({ where: { id: userId }, select: { id: true, nama: true, auth_provider: true } });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User tidak ditemukan.' });
+    }
+
+    if (user.auth_provider === 'google') {
+      return res.status(400).json({ success: false, error: 'User login via Google — tidak bisa reset password manual.' });
+    }
+
+    // Generate random password 12 chars
+    const newPassword = crypto.randomBytes(6).toString('hex');
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+
+    await db.users.update({
+      where: { id: userId },
+      data: {
+        password: hashedPassword,
+        token_version: { increment: 1 }, // Invalidate semua JWT lama
+      },
+    });
+
+    await db.audit_logs.create({
+      data: {
+        actor_user_id: req.user.user_id,
+        entity_type: 'user',
+        entity_id: userId,
+        action: 'reset_user_password',
+        metadata: { user_name: user.nama },
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: 'Password berhasil direset.',
+      data: { new_password: newPassword },
+    });
+  } catch (error: any) {
+    console.error('[SysAdmin] resetUserPassword error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal mereset password.' });
+  }
+};
+
+/* ═══════════════════════════════════════════════════════
+   TENANT DETAIL VIEW
+═══════════════════════════════════════════════════════ */
+
+/** GET /sys-admin/tenants/:id/detail — Deep-dive into a specific tenant */
+export const getTenantDetail = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    const tenantId = parseInt(req.params.id as string);
+    if (isNaN(tenantId)) {
+      return res.status(400).json({ success: false, error: 'ID tidak valid.' });
+    }
+
+    const tenant = await db.tenants.findUnique({
+      where: { id: tenantId },
+      select: {
+        id: true, name: true, slug: true, address: true, phone: true, email: true,
+        logo: true, subscription_plan: true, subscription_until: true, is_active: true,
+        timezone: true, created_at: true, updated_at: true,
+      },
+    });
+
+    if (!tenant) {
+      return res.status(404).json({ success: false, error: 'Tenant tidak ditemukan.' });
+    }
+
+    // Stats
+    const [totalOrders, totalCustomers, totalStaff, totalOutlets, revenueAgg] = await Promise.all([
+      db.orders.count({ where: { tenant_id: tenantId } }),
+      db.customers.count({ where: { tenant_id: tenantId, deleted_at: null } }),
+      db.users.count({ where: { tenant_id: tenantId, deleted_at: null } }),
+      db.outlets.count({ where: { tenant_id: tenantId } }),
+      db.orders.aggregate({ _sum: { total_harga: true }, where: { tenant_id: tenantId, status: 'selesai' } }),
+    ]);
+
+    // Recent orders (10)
+    const recentOrders = await db.orders.findMany({
+      where: { tenant_id: tenantId },
+      take: 10,
+      orderBy: { created_at: 'desc' },
+      select: {
+        id: true, kode_pesanan: true, total_harga: true, status: true, tgl_order: true,
+        customers: { select: { nama: true } },
+      },
+    });
+
+    // Staff list
+    const staffList = await db.users.findMany({
+      where: { tenant_id: tenantId, deleted_at: null },
+      select: { id: true, nama: true, username: true, role: true, is_active: true, email: true, created_at: true },
+      orderBy: { created_at: 'desc' },
+    });
+
+    // Outlets
+    const outletList = await db.outlets.findMany({
+      where: { tenant_id: tenantId },
+      select: { id: true, nama: true, alamat: true, phone: true, is_active: true },
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        ...tenant,
+        stats: {
+          total_orders: totalOrders,
+          total_customers: totalCustomers,
+          total_staff: totalStaff,
+          total_outlets: totalOutlets,
+          total_revenue: Number((revenueAgg._sum as any).total_harga) || 0,
+        },
+        recent_orders: recentOrders.map((o: any) => ({
+          id: o.id,
+          kode: o.kode_pesanan,
+          total: Number(o.total_harga),
+          status: o.status,
+          tanggal: o.tgl_order,
+          pelanggan: o.customers?.nama || '-',
+        })),
+        staff: staffList,
+        outlets: outletList,
+      },
+    });
+  } catch (error: any) {
+    console.error('[SysAdmin] getTenantDetail error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal mengambil detail tenant.' });
+  }
+};
+
+/* ═══════════════════════════════════════════════════════
+   MAINTENANCE MODE TOGGLE
+═══════════════════════════════════════════════════════ */
+
+// Runtime maintenance state — digunakan oleh maintenanceMiddleware
+export const maintenanceState = {
+  enabled: false,
+  message: '',
+  estimatedEnd: null as string | null,
+};
+
+/** GET /sys-admin/maintenance — Get current maintenance status */
+export const getMaintenanceStatus = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    // Runtime state OR env variable (whichever is active)
+    const isActive = maintenanceState.enabled || process.env.MAINTENANCE_MODE === 'true';
+
+    return res.json({
+      success: true,
+      data: {
+        enabled: isActive,
+        message: maintenanceState.message || process.env.MAINTENANCE_MSG || '',
+        estimated_end: maintenanceState.estimatedEnd || process.env.MAINTENANCE_UNTIL || null,
+        source: maintenanceState.enabled ? 'runtime' : (process.env.MAINTENANCE_MODE === 'true' ? 'env' : 'off'),
+      },
+    });
+  } catch (error: any) {
+    console.error('[SysAdmin] getMaintenanceStatus error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal mengambil status maintenance.' });
+  }
+};
+
+/** POST /sys-admin/maintenance/toggle — Toggle maintenance mode ON/OFF */
+export const toggleMaintenanceMode = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    const { enabled, message, estimated_end } = req.body;
+
+    maintenanceState.enabled = !!enabled;
+    maintenanceState.message = message || 'Sistem sedang dalam pemeliharaan terjadwal.';
+    maintenanceState.estimatedEnd = estimated_end || null;
+
+    await db.audit_logs.create({
+      data: {
+        actor_user_id: req.user.user_id,
+        entity_type: 'system',
+        action: enabled ? 'enable_maintenance' : 'disable_maintenance',
+        metadata: { message: maintenanceState.message, estimated_end: maintenanceState.estimatedEnd },
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: `Maintenance mode ${maintenanceState.enabled ? 'AKTIF' : 'NONAKTIF'}.`,
+      data: {
+        enabled: maintenanceState.enabled,
+        message: maintenanceState.message,
+        estimated_end: maintenanceState.estimatedEnd,
+      },
+    });
+  } catch (error: any) {
+    console.error('[SysAdmin] toggleMaintenanceMode error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal mengubah status maintenance.' });
   }
 };
