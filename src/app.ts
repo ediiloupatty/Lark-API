@@ -25,6 +25,7 @@ import paymentRoutes from './routes/paymentRoutes';
 import trackingRoutes from './routes/trackingRoutes';
 import { getLandingStats } from './controllers/publicController';
 import { maintenanceMiddleware } from './middlewares/maintenanceMiddleware';
+import { maintenanceState } from './controllers/sysAdminController';
 import { setCsrfCookie, verifyCsrf } from './middlewares/csrfMiddleware';
 import { authenticateToken } from './middlewares/authMiddleware';
 import { listBlogArticles, getBlogArticle, triggerGenerate } from './controllers/blogController';
@@ -134,9 +135,32 @@ app.get('/api/v1/public/media/*path', proxyMedia);
 import expenseRoutes from './routes/expenseRoutes';
 app.use('/api/v1/expenses', verifyCsrf, expenseRoutes);
 
-// Health check
+// Health check — tetap exempt dari maintenance middleware agar monitoring
+// tools tetap dapat respons. Frontend mengecek field `is_maintenance`
+// di response body untuk mendeteksi maintenance saat initial load.
 app.get('/api/v1/health', async (req: Request, res: Response) => {
   const dbHealth = await isDbHealthy();
+
+  // Cek maintenance state
+  const isMaintenanceOn = maintenanceState.enabled || process.env.MAINTENANCE_MODE === 'true';
+
+  // Jika maintenance aktif, return 503 dengan flag is_maintenance
+  // agar frontend bisa langsung tampilkan maintenance page
+  if (isMaintenanceOn) {
+    const estimatedEnd = maintenanceState.estimatedEnd || process.env.MAINTENANCE_UNTIL || null;
+    const message = maintenanceState.message
+      || process.env.MAINTENANCE_MSG
+      || 'Sistem sedang dalam pemeliharaan terjadwal. Coba lagi beberapa saat.';
+
+    return res.status(503).json({
+      status: 'maintenance',
+      code: 'SERVICE_UNAVAILABLE',
+      message,
+      estimated_end: estimatedEnd,
+      is_maintenance: true,
+    });
+  }
+
   const status = dbHealth.ok ? 'healthy' : 'degraded';
   const httpCode = dbHealth.ok ? 200 : 503;
   res.status(httpCode).json({
@@ -146,6 +170,7 @@ app.get('/api/v1/health', async (req: Request, res: Response) => {
     environment: process.env.NODE_ENV || 'development',
     uptime: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
+    is_maintenance: false,
     checks: {
       database: {
         status: dbHealth.ok ? 'up' : 'down',
