@@ -70,7 +70,7 @@ async function dispatchAlert(alert: HealthAlert): Promise<void> {
     // Simpan notifikasi ke DB untuk setiap super_admin
     for (const admin of superAdmins) {
       await saveNotification({
-        tenantId: admin.tenant_id || 0,
+        tenantId: admin.tenant_id ?? null,
         userId: admin.id,
         tipe: 'system_alert',
         pesan,
