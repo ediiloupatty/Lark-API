@@ -194,8 +194,10 @@ export const loginAdmin = async (req: Request, res: Response) => {
       setAuthCookie(res, token);
 
       // Cek apakah tenant sudah pernah setup (punya outlet)
-      const outletCount = await db.outlets.count({ where: { tenant_id: user.tenant_id! } });
-      const needsSetup = outletCount === 0;
+      // Super admin (tenant_id = null) tidak perlu setup check
+      const needsSetup = user.tenant_id
+        ? (await db.outlets.count({ where: { tenant_id: user.tenant_id } })) === 0
+        : false;
 
       return res.status(200).json({
         status: 'success',
