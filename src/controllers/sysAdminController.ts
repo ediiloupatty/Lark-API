@@ -1025,12 +1025,48 @@ export const getTenantDetail = async (req: AuthRequest, res: Response) => {
    MAINTENANCE MODE TOGGLE
 ═══════════════════════════════════════════════════════ */
 
-// Runtime maintenance state — digunakan oleh maintenanceMiddleware
-export const maintenanceState = {
-  enabled: false,
-  message: '',
-  estimatedEnd: null as string | null,
-};
+// Runtime maintenance state — digunakan oleh maintenanceMiddleware.
+// PERSISTED: State disimpan ke file agar survive PM2 restart / server crash.
+// Maintenance tetap aktif sampai super admin nonaktifkan secara eksplisit.
+import fs from 'fs';
+import path from 'path';
+
+const MAINTENANCE_FILE = path.join(__dirname, '../../.maintenance-state.json');
+
+interface MaintenanceState {
+  enabled: boolean;
+  message: string;
+  estimatedEnd: string | null;
+}
+
+function loadMaintenanceState(): MaintenanceState {
+  try {
+    if (fs.existsSync(MAINTENANCE_FILE)) {
+      const raw = fs.readFileSync(MAINTENANCE_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      console.log(`[Maintenance] State restored from disk: ${parsed.enabled ? 'AKTIF' : 'NONAKTIF'}`);
+      return {
+        enabled: !!parsed.enabled,
+        message: parsed.message || '',
+        estimatedEnd: parsed.estimatedEnd || null,
+      };
+    }
+  } catch (err) {
+    console.error('[Maintenance] Failed to read state file, starting with default:', err);
+  }
+  return { enabled: false, message: '', estimatedEnd: null };
+}
+
+function saveMaintenanceState(state: MaintenanceState): void {
+  try {
+    fs.writeFileSync(MAINTENANCE_FILE, JSON.stringify(state, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('[Maintenance] Failed to save state file:', err);
+  }
+}
+
+// Load state dari disk saat server start
+export const maintenanceState = loadMaintenanceState();
 
 /** GET /sys-admin/maintenance — Get current maintenance status */
 export const getMaintenanceStatus = async (req: AuthRequest, res: Response) => {
@@ -1069,6 +1105,9 @@ export const toggleMaintenanceMode = async (req: AuthRequest, res: Response) => 
     maintenanceState.enabled = !!enabled;
     maintenanceState.message = message || 'Sistem sedang dalam pemeliharaan terjadwal.';
     maintenanceState.estimatedEnd = estimated_end || null;
+
+    // Persist ke disk agar survive PM2 restart / server crash
+    saveMaintenanceState(maintenanceState);
 
     await db.audit_logs.create({
       data: {
