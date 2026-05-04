@@ -18,6 +18,8 @@ const EXEMPT_PATHS = [
   '/api/v1/health',
   '/api/v1/public/',
   '/api/v1/sys-admin/',
+  '/api/v1/auth/login',      // Super admin harus tetap bisa login saat maintenance
+  '/api/v1/auth/google',     // Google OAuth juga (bisa jadi super admin pakai Google)
 ];
 
 export function maintenanceMiddleware(req: Request, res: Response, next: NextFunction): void {
