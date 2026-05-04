@@ -10,6 +10,8 @@ import {
   getTenantDetail,
   // Maintenance
   getMaintenanceStatus, toggleMaintenanceMode,
+  // System Health Monitoring
+  getSystemAlerts, markAlertsRead, getHealthSnapshot,
 } from '../controllers/sysAdminController';
 import { authenticateToken } from '../middlewares/authMiddleware';
 
@@ -45,5 +47,10 @@ router.get('/tenants/:id/detail', getTenantDetail);
 // ── Maintenance Mode ──
 router.get('/maintenance', getMaintenanceStatus);
 router.post('/maintenance/toggle', toggleMaintenanceMode);
+
+// ── System Health Monitoring ──
+router.get('/alerts', getSystemAlerts);
+router.post('/alerts/read', markAlertsRead);
+router.get('/health-snapshot', getHealthSnapshot);
 
 export default router;
