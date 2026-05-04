@@ -403,12 +403,21 @@ export const registerAdmin = async (req: Request, res: Response) => {
         }
       });
 
-      // 3. Seed Default Services
+      // 3. Seed Default Services (harga 0 agar user wajib atur sendiri)
       await tx.services.createMany({
         data: [
-          { tenant_id: tenant.id, nama_layanan: 'Cuci Biasa', harga_per_kg: 5000, deskripsi: 'Layanan cuci regular (2-3 hari)', durasi_hari: 3 },
-          { tenant_id: tenant.id, nama_layanan: 'Cuci Setrika', harga_per_kg: 8000, deskripsi: 'Layanan cuci + setrika (2-3 hari)', durasi_hari: 3 },
-          { tenant_id: tenant.id, nama_layanan: 'Setrika Saja', harga_per_kg: 3000, deskripsi: 'Layanan setrika saja (1 hari)', durasi_hari: 1 },
+          { tenant_id: tenant.id, nama_layanan: 'Cuci Biasa', harga_per_kg: 0, deskripsi: 'Layanan cuci regular', durasi_hari: 3 },
+          { tenant_id: tenant.id, nama_layanan: 'Cuci Setrika', harga_per_kg: 0, deskripsi: 'Layanan cuci + setrika', durasi_hari: 3 },
+          { tenant_id: tenant.id, nama_layanan: 'Setrika Saja', harga_per_kg: 0, deskripsi: 'Layanan setrika saja', durasi_hari: 1 },
+        ]
+      });
+
+      // 3b. Seed Default Packages (paket durasi)
+      await tx.paket_laundry.createMany({
+        data: [
+          { tenant_id: tenant.id, nama: 'Reguler', durasi_jam: 72, harga_tambahan: 0 },
+          { tenant_id: tenant.id, nama: 'Express', durasi_jam: 24, harga_tambahan: 0 },
+          { tenant_id: tenant.id, nama: 'Kilat', durasi_jam: 6, harga_tambahan: 0 },
         ]
       });
 
@@ -738,12 +747,21 @@ export const googleLogin = async (req: Request, res: Response) => {
           },
         });
 
-        // Seed default services
+        // Seed default services (harga 0 agar user wajib atur sendiri)
         await tx.services.createMany({
           data: [
-            { tenant_id: tenant.id, nama_layanan: 'Cuci Biasa', harga_per_kg: 5000, deskripsi: 'Layanan cuci regular (2-3 hari)', durasi_hari: 3 },
-            { tenant_id: tenant.id, nama_layanan: 'Cuci Setrika', harga_per_kg: 8000, deskripsi: 'Layanan cuci + setrika (2-3 hari)', durasi_hari: 3 },
-            { tenant_id: tenant.id, nama_layanan: 'Setrika Saja', harga_per_kg: 3000, deskripsi: 'Layanan setrika saja (1 hari)', durasi_hari: 1 },
+            { tenant_id: tenant.id, nama_layanan: 'Cuci Biasa', harga_per_kg: 0, deskripsi: 'Layanan cuci regular', durasi_hari: 3 },
+            { tenant_id: tenant.id, nama_layanan: 'Cuci Setrika', harga_per_kg: 0, deskripsi: 'Layanan cuci + setrika', durasi_hari: 3 },
+            { tenant_id: tenant.id, nama_layanan: 'Setrika Saja', harga_per_kg: 0, deskripsi: 'Layanan setrika saja', durasi_hari: 1 },
+          ],
+        });
+
+        // Seed default packages (paket durasi)
+        await tx.paket_laundry.createMany({
+          data: [
+            { tenant_id: tenant.id, nama: 'Reguler', durasi_jam: 72, harga_tambahan: 0 },
+            { tenant_id: tenant.id, nama: 'Express', durasi_jam: 24, harga_tambahan: 0 },
+            { tenant_id: tenant.id, nama: 'Kilat', durasi_jam: 6, harga_tambahan: 0 },
           ],
         });
 
