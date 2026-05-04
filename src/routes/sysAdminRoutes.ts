@@ -14,6 +14,9 @@ import {
   getSystemAlerts, markAlertsRead, getHealthSnapshot,
   // API Error Tracking
   getApiErrorStats,
+  // Broadcast, Subscription, Export, Revenue, Backup
+  broadcastNotification, getExpiringSubscriptions, exportData,
+  getTenantRevenueRanking, getBackupStatus,
 } from '../controllers/sysAdminController';
 import { authenticateToken } from '../middlewares/authMiddleware';
 
@@ -55,5 +58,20 @@ router.get('/alerts', getSystemAlerts);
 router.post('/alerts/read', markAlertsRead);
 router.get('/health-snapshot', getHealthSnapshot);
 router.get('/error-stats', getApiErrorStats);
+
+// ── Broadcast Notification ──
+router.post('/broadcast', broadcastNotification);
+
+// ── Subscription Expiry ──
+router.get('/expiring-subscriptions', getExpiringSubscriptions);
+
+// ── Data Export (CSV) ──
+router.get('/export', exportData);
+
+// ── Tenant Revenue Ranking ──
+router.get('/revenue-ranking', getTenantRevenueRanking);
+
+// ── DB Backup Status ──
+router.get('/backup-status', getBackupStatus);
 
 export default router;
