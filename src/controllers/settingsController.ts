@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { db } from '../config/db';
 import { AuthRequest } from '../middlewares/authMiddleware';
+import { computeSubscriptionStatus } from '../middlewares/subscriptionGuard';
 
 // --- SETTINGS (Umum & Nota) ---
 export const getSettings = async (req: AuthRequest, res: Response) => {
@@ -100,14 +101,14 @@ export const getSubscriptions = async (req: AuthRequest, res: Response) => {
       'basic': 'Paket Basic',
       'premium': 'Paket Premium'
     };
+
+    // Hitung subscription status menggunakan shared logic
+    const subStatus = computeSubscriptionStatus(tenant?.subscription_until ?? null);
     
     let untilString = '-';
-    let isExpired = false;
-    
     if (tenant?.subscription_until) {
        const dateObj = new Date(tenant.subscription_until);
        untilString = dateObj.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-       isExpired = dateObj.getTime() < Date.now();
     } else {
        if (tenant?.subscription_plan === 'free') {
            untilString = 'Selamanya (Akses Dasar)'; 
@@ -120,8 +121,15 @@ export const getSubscriptions = async (req: AuthRequest, res: Response) => {
         current: {
            plan_code: tenant?.subscription_plan || 'free',
            plan_name: planNameMap[tenant?.subscription_plan || 'free'] || 'Paket Aktif',
-           is_expired: isExpired,
-           until: untilString
+           is_expired: subStatus.status === 'expired',
+           until: untilString,
+           // Field baru — enriched subscription data
+           subscription_status: subStatus.status,
+           days_left: subStatus.daysLeft,
+           can_create_order: subStatus.canCreateOrder,
+           grace_until: subStatus.graceUntil
+             ? subStatus.graceUntil.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })
+             : null,
         },
         packages: packages.map(p => ({ ...p, harga: Number(p.harga) }))
       }
@@ -130,3 +138,4 @@ export const getSubscriptions = async (req: AuthRequest, res: Response) => {
     res.status(500).json({ status: 'error', message: 'Gagal memuat billing' });
   }
 };
+

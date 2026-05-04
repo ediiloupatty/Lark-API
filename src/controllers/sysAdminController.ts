@@ -4,6 +4,7 @@ import { db } from '../config/db';
 import { pool } from '../config/db';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
+import { invalidateSubscriptionCache } from '../middlewares/subscriptionGuard';
 
 export const getGlobalStats = async (req: AuthRequest, res: Response) => {
   try {
@@ -243,6 +244,9 @@ export const extendSubscription = async (req: AuthRequest, res: Response) => {
         metadata: { previous_date: tenant.subscription_until, new_date: newDate }
       }
     });
+
+    // Invalidate subscription cache agar guard langsung reflektif
+    invalidateSubscriptionCache(tenantId);
 
     return res.status(200).json({
       success: true,

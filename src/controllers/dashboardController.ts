@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { db } from '../config/db';
 import { AuthRequest } from '../middlewares/authMiddleware';
+import { computeSubscriptionStatus } from '../middlewares/subscriptionGuard';
 
 export const getDashboard = async (req: AuthRequest, res: Response) => {
   try {
@@ -247,6 +248,35 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // Subscription status — untuk banner di dashboard
+    const tenantSub = await db.tenants.findUnique({
+      where: { id: tenantId },
+      select: { subscription_plan: true, subscription_until: true },
+    });
+    const subStatus = computeSubscriptionStatus(tenantSub?.subscription_until ?? null);
+
+    // Tentukan kapan banner harus muncul
+    // - active dan > 15 hari: tidak tampil
+    // - active dan <= 15 hari: info (biru)
+    // - active dan <= 5 hari: warning (kuning)
+    // - grace: danger (merah)
+    // - expired: critical (merah gelap)
+    let showBanner = false;
+    let bannerType: 'info' | 'warning' | 'danger' | 'critical' = 'info';
+    if (subStatus.status === 'expired') {
+      showBanner = true;
+      bannerType = 'critical';
+    } else if (subStatus.status === 'grace') {
+      showBanner = true;
+      bannerType = 'danger';
+    } else if (subStatus.daysLeft <= 5) {
+      showBanner = true;
+      bannerType = 'warning';
+    } else if (subStatus.daysLeft <= 15) {
+      showBanner = true;
+      bannerType = 'info';
+    }
+
     // Fetch services dan packages untuk di-cache di perangkat mobile
     const servicesRaw = await db.$queryRawUnsafe<any[]>(
       `SELECT s.id, s.nama_layanan as name, s.harga_per_kg as price,
@@ -316,6 +346,14 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
           outlet_id: outletId,
           outlet_nama: outlet_nama,
           outlets: available_outlets
+        },
+        subscription: {
+          status: subStatus.status,
+          days_left: subStatus.daysLeft,
+          plan: tenantSub?.subscription_plan || 'free',
+          can_create_order: subStatus.canCreateOrder,
+          show_banner: showBanner,
+          banner_type: bannerType,
         }
       }
     });
