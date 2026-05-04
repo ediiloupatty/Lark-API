@@ -6,6 +6,7 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { invalidateSubscriptionCache } from '../middlewares/subscriptionGuard';
 import { getLatestSnapshot, runHealthCheckWithSnapshot } from '../schedulers/healthMonitor';
+import { getErrorStats as getErrorStatsData } from '../middlewares/errorTracker';
 
 export const getGlobalStats = async (req: AuthRequest, res: Response) => {
   try {
@@ -1269,5 +1270,25 @@ export const getHealthSnapshot = async (req: AuthRequest, res: Response) => {
   } catch (error: any) {
     console.error('[SysAdmin] getHealthSnapshot error:', error);
     return res.status(500).json({ success: false, error: 'Gagal mengambil health snapshot.' });
+  }
+};
+
+/**
+ * GET /sys-admin/error-stats
+ *
+ * Return API error tracking data dari in-memory ring buffer.
+ * Data: recent errors, error rate per minute, top endpoints, breakdown by status code & platform.
+ */
+export const getApiErrorStats = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    const stats = getErrorStatsData();
+    return res.json({ success: true, data: stats });
+  } catch (error: any) {
+    console.error('[SysAdmin] getApiErrorStats error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal mengambil error stats.' });
   }
 };

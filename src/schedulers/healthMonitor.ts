@@ -20,6 +20,7 @@ import cron from 'node-cron';
 import { db } from '../config/db';
 import { isDbHealthy, pool } from '../config/db';
 import { sendPushToAdmins, saveNotification } from '../services/firebaseService';
+import { getCurrentErrorRate } from '../middlewares/errorTracker';
 
 // ── Threshold Configuration ──────────────────────────────────────
 const THRESHOLDS = {
@@ -27,6 +28,7 @@ const THRESHOLDS = {
   MEMORY_MB: 512,             // Alert jika RSS > 512MB
   UPTIME_MIN_SECONDS: 60,     // Alert jika uptime < 60 detik (possible crash loop)
   FRONTEND_TIMEOUT_MS: 10000, // Timeout untuk cek frontend
+  ERROR_RATE_PER_MIN: 10,     // Alert jika > 10 API errors per menit
 };
 
 // ── Cooldown: mencegah spam alert berulang ──────────────────────
@@ -254,6 +256,7 @@ export interface HealthSnapshot {
   frontend: { ok: boolean; statusCode: number | null; error?: string };
   uptime: { seconds: number; formatted: string };
   pool: { total: number; idle: number; waiting: number };
+  errorRate: number; // API errors per minute
   alerts: HealthAlert[];
 }
 
@@ -335,6 +338,17 @@ export async function runHealthCheckWithSnapshot(): Promise<HealthSnapshot> {
     }
   } catch { /* skip */ }
 
+  // 6. API Error Rate Spike Detection
+  const currentErrorRate = getCurrentErrorRate();
+  if (currentErrorRate > THRESHOLDS.ERROR_RATE_PER_MIN && shouldAlert('error_rate_spike')) {
+    alerts.push({
+      type: 'Error Rate Spike',
+      severity: 'warning',
+      message: `API error rate tinggi: ${currentErrorRate} errors/menit (threshold: ${THRESHOLDS.ERROR_RATE_PER_MIN})`,
+      value: `${currentErrorRate}/min`,
+    });
+  }
+
   // Dispatch alerts
   for (const alert of alerts) {
     await dispatchAlert(alert);
@@ -347,6 +361,7 @@ export async function runHealthCheckWithSnapshot(): Promise<HealthSnapshot> {
     frontend: feResult,
     uptime: { seconds: uptimeSec, formatted: uptimeFormatted },
     pool: poolStats,
+    errorRate: currentErrorRate,
     alerts,
   };
 

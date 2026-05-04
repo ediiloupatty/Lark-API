@@ -12,6 +12,8 @@ import {
   getMaintenanceStatus, toggleMaintenanceMode,
   // System Health Monitoring
   getSystemAlerts, markAlertsRead, getHealthSnapshot,
+  // API Error Tracking
+  getApiErrorStats,
 } from '../controllers/sysAdminController';
 import { authenticateToken } from '../middlewares/authMiddleware';
 
@@ -52,5 +54,6 @@ router.post('/maintenance/toggle', toggleMaintenanceMode);
 router.get('/alerts', getSystemAlerts);
 router.post('/alerts/read', markAlertsRead);
 router.get('/health-snapshot', getHealthSnapshot);
+router.get('/error-stats', getApiErrorStats);
 
 export default router;

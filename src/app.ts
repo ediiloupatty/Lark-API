@@ -104,6 +104,10 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
+// Error Tracker — intercept semua response error (4xx/5xx) untuk monitoring
+import { errorTrackerMiddleware } from './middlewares/errorTracker';
+app.use(errorTrackerMiddleware);
+
 // Maintenance Mode
 app.use(maintenanceMiddleware);
 
