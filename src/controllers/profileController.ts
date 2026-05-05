@@ -196,7 +196,8 @@ export const changePassword = async (req: AuthRequest, res: Response) => {
 };
 
 // POST /api/v1/sync/complete-setup
-// Setup awal tenant (nama toko, alamat, telepon) — dipanggil setelah Google sign-in
+// Setup awal tenant (nama toko, alamat, telepon) + buat outlet pertama.
+// Dipanggil dari welcome wizard mobile setelah Google sign-in atau register.
 export const completeSetup = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user?.user_id;
@@ -211,8 +212,9 @@ export const completeSetup = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ status: 'error', message: 'Akses ditolak.' });
     }
 
-    const { nama_toko, alamat_toko, telepon_toko } = req.body;
+    const { nama_toko, alamat_toko, telepon_toko, outlet_nama, outlet_alamat, outlet_phone, outlet_jam_buka, outlet_jam_tutup } = req.body;
 
+    // ── Validasi tenant ──
     if (!nama_toko || (nama_toko as string).trim().length < 2) {
       return res.status(400).json({ status: 'error', message: 'Nama toko wajib diisi (minimal 2 karakter).' });
     }
@@ -220,48 +222,90 @@ export const completeSetup = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ status: 'error', message: 'Nama toko maksimal 50 karakter.' });
     }
 
+    // ── Validasi outlet ──
+    const outletName = (outlet_nama as string | undefined)?.trim();
+    if (!outletName || outletName.length < 2) {
+      return res.status(400).json({ status: 'error', message: 'Nama outlet/cabang wajib diisi (minimal 2 karakter).' });
+    }
+
     const trimmedName = (nama_toko as string).trim();
     const trimmedAddress = alamat_toko?.trim() || 'Belum diatur';
     const trimmedPhone = telepon_toko?.trim() || 'Belum diatur';
 
-    // Update tenants table
-    await db.tenants.update({
-      where: { id: tenantId },
-      data: {
-        name: trimmedName,
-        address: trimmedAddress,
-        phone: trimmedPhone,
-      }
-    });
+    // Jalankan semua operasi dalam satu transaksi agar atomik
+    const outletId = await db.$transaction(async (tx) => {
+      // 1. Update tenants table
+      await tx.tenants.update({
+        where: { id: tenantId },
+        data: {
+          name: trimmedName,
+          address: trimmedAddress,
+          phone: trimmedPhone,
+        }
+      });
 
-    // Sinkronkan ke tenant_settings.toko_info
-    await db.tenant_settings.upsert({
-      where: { tenant_id_setting_key: { tenant_id: tenantId, setting_key: 'toko_info' } },
-      update: {
-        setting_value: {
-          nama: trimmedName,
-          alamat: trimmedAddress,
-          telepon: trimmedPhone,
-          email: (req.user as any)?.email || 'Belum diatur',
+      // 2. Sinkronkan ke tenant_settings.toko_info
+      await tx.tenant_settings.upsert({
+        where: { tenant_id_setting_key: { tenant_id: tenantId, setting_key: 'toko_info' } },
+        update: {
+          setting_value: {
+            nama: trimmedName,
+            alamat: trimmedAddress,
+            telepon: trimmedPhone,
+            email: (req.user as any)?.email || 'Belum diatur',
+          },
+          updated_at: new Date(),
         },
-        updated_at: new Date(),
-      },
-      create: {
-        tenant_id: tenantId,
-        setting_key: 'toko_info',
-        setting_value: {
-          nama: trimmedName,
-          alamat: trimmedAddress,
-          telepon: trimmedPhone,
-          email: (req.user as any)?.email || 'Belum diatur',
-        },
+        create: {
+          tenant_id: tenantId,
+          setting_key: 'toko_info',
+          setting_value: {
+            nama: trimmedName,
+            alamat: trimmedAddress,
+            telepon: trimmedPhone,
+            email: (req.user as any)?.email || 'Belum diatur',
+          },
+        }
+      });
+
+      // 3. Buat outlet pertama (hanya jika belum ada outlet)
+      const existingOutletCount = await tx.outlets.count({ where: { tenant_id: tenantId } });
+      let newOutletId: number | null = null;
+
+      if (existingOutletCount === 0) {
+        const inserted = await tx.$queryRawUnsafe<any[]>(
+          `INSERT INTO outlets (tenant_id, nama, alamat, phone, jam_buka, jam_tutup)
+           VALUES ($1, $2, $3, $4, $5::time, $6::time) RETURNING id`,
+          tenantId,
+          outletName,
+          outlet_alamat?.trim() || trimmedAddress,
+          outlet_phone?.trim() || trimmedPhone,
+          outlet_jam_buka || '08:00',
+          outlet_jam_tutup || '20:00'
+        );
+        newOutletId = inserted[0]?.id ?? null;
+
+        // 4. Assign owner ke outlet baru agar outlet_id di JWT tidak null
+        if (newOutletId) {
+          await tx.users.update({
+            where: { id: userId },
+            data: { outlet_id: newOutletId }
+          });
+        }
       }
+
+      return newOutletId;
     });
 
     res.json({
       status: 'success',
-      message: 'Setup toko berhasil! Selamat datang di Lark.',
-      data: { nama_toko: trimmedName }
+      message: 'Setup toko dan outlet berhasil! Selamat datang di Lark.',
+      data: {
+        nama_toko: trimmedName,
+        outlet_id: outletId,
+        // Flag agar mobile app tahu perlu re-login untuk refresh JWT dengan outlet_id baru
+        needs_relogin: outletId != null,
+      }
     });
   } catch (err: any) {
     console.error('[CompleteSetup Error]', err);
