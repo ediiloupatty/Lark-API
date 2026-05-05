@@ -212,7 +212,7 @@ export const completeSetup = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ status: 'error', message: 'Akses ditolak.' });
     }
 
-    const { nama_toko, alamat_toko, telepon_toko, outlet_nama, outlet_alamat, outlet_phone, outlet_jam_buka, outlet_jam_tutup } = req.body;
+    const { nama_toko, alamat_toko, telepon_toko, user_phone, user_alamat, outlet_nama, outlet_alamat, outlet_phone, outlet_jam_buka, outlet_jam_tutup } = req.body;
 
     // ── Validasi tenant ──
     if (!nama_toko || (nama_toko as string).trim().length < 2) {
@@ -285,13 +285,26 @@ export const completeSetup = async (req: AuthRequest, res: Response) => {
         );
         newOutletId = inserted[0]?.id ?? null;
 
-        // 4. Assign owner ke outlet baru agar outlet_id di JWT tidak null
+        // 4. Assign owner ke outlet baru + update profil pribadi
         if (newOutletId) {
           await tx.users.update({
             where: { id: userId },
-            data: { outlet_id: newOutletId }
+            data: {
+              outlet_id: newOutletId,
+              no_hp: user_phone?.trim() || undefined,
+              alamat: user_alamat?.trim() || undefined,
+            }
           });
         }
+      } else {
+        // Outlet sudah ada, tetap update profil pribadi user
+        await tx.users.update({
+          where: { id: userId },
+          data: {
+            no_hp: user_phone?.trim() || undefined,
+            alamat: user_alamat?.trim() || undefined,
+          }
+        });
       }
 
       return newOutletId;
