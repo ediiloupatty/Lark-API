@@ -373,8 +373,8 @@ export const registerAdmin = async (req: Request, res: Response) => {
   try {
     const { username, password, confirm_password, nama, nama_toko, no_hp, email, alamat } = req.body;
     
-    if (!username || !password || !nama) {
-      return res.status(400).json({ success: false, error: 'Username, password, dan nama harus diisi!' });
+    if (!username || !password || !nama || !nama_toko || !no_hp || !email || !alamat) {
+      return res.status(400).json({ success: false, error: 'Semua field wajib diisi (username, password, nama, nama toko, no HP, email, alamat)!' });
     }
     if (password !== confirm_password) {
       return res.status(400).json({ success: false, error: 'Password dan konfirmasi password tidak cocok!' });
