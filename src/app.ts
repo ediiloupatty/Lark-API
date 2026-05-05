@@ -54,31 +54,33 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 // Security 3: Custom Origin + CORS
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  'https://larklaundry.com',
-  'https://www.larklaundry.com',
-  process.env.VITE_FRONTEND_URL || 'https://lark-laundry.vercel.app'
-];
+const allowedOrigins = Array.from(
+  new Set(
+    [
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+      'https://larklaundry.com',
+      'https://www.larklaundry.com',
+      process.env.VITE_FRONTEND_URL,
+      process.env.APP_URL,
+    ]
+      .filter(Boolean)
+      .map((origin) => (origin as string).replace(/\/$/, ''))
+  )
+);
 
 function isAllowedOrigin(origin: string): boolean {
-  if (allowedOrigins.includes(origin)) return true;
-  if (origin.endsWith('.vercel.app')) return true;
-  if (origin.endsWith('.larklaundry.com') || origin === 'https://larklaundry.com') return true;
-  if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) return true;
-  if (origin.startsWith('http://192.168.') || origin.startsWith('http://10.')) return true;
+  const normalizedOrigin = origin.replace(/\/$/, '');
+  if (allowedOrigins.includes(normalizedOrigin)) return true;
+  if (normalizedOrigin.startsWith('http://localhost') || normalizedOrigin.startsWith('http://127.0.0.1')) return true;
+  if (normalizedOrigin.startsWith('http://192.168.') || normalizedOrigin.startsWith('http://10.')) return true;
   return false;
 }
 
 app.use((req: Request, res: Response, next) => {
   const origin = req.headers.origin;
   const platform = req.headers['x-app-platform'];
-  const vercelId = req.headers['x-vercel-id'];
-  const forwardedHost = req.headers['x-forwarded-host'] as string | undefined;
-
   if (origin && isAllowedOrigin(origin)) return next();
-  if (vercelId || (forwardedHost && forwardedHost.endsWith('.vercel.app'))) return next();
   if (platform === 'LarkMobile' || platform === 'LarkWeb') return next();
   if (req.path.startsWith('/api/v1/public/') || req.path === '/api/v1/health' || req.path === '/api/v1/payments/notify') return next();
 
