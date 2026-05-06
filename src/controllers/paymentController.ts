@@ -44,6 +44,10 @@ export class PaymentController {
 
       const referenceId = `SUB-${tenantId}-${Date.now()}`;
 
+      // Sanitize phone: strip semua karakter non-angka, pastikan format valid untuk iPaymu
+      const rawPhone = tenant.phone || '081234567890';
+      const sanitizedPhone = rawPhone.replace(/\D/g, '') || '081234567890';
+
       const paymentData = await IpaymuService.createPayment({
         product: [`${pkg.nama_paket} - Lark Laundry`],
         qty: [1],
@@ -54,7 +58,7 @@ export class PaymentController {
         referenceId,
         buyerName: tenant.name,
         buyerEmail: tenant.email || 'support@larklaundry.com',
-        buyerPhone: tenant.phone || '081234567890',
+        buyerPhone: sanitizedPhone,
       });
 
       // Log payment intent (payments table schema is for order payments, not subscription)
