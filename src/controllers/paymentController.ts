@@ -44,9 +44,20 @@ export class PaymentController {
 
       const referenceId = `SUB-${tenantId}-${Date.now()}`;
 
-      // Sanitize phone: strip semua karakter non-angka, pastikan format valid untuk iPaymu
-      const rawPhone = tenant.phone || '081234567890';
-      const sanitizedPhone = rawPhone.replace(/\D/g, '') || '081234567890';
+      // Validasi phone tenant — wajib ada dan harus berupa angka
+      if (!tenant.phone || tenant.phone.trim() === '') {
+        return res.status(400).json({
+          success: false,
+          message: 'Nomor telepon tenant belum diisi. Lengkapi profil toko terlebih dahulu.',
+        });
+      }
+      const sanitizedPhone = tenant.phone.replace(/\D/g, '');
+      if (sanitizedPhone.length < 8) {
+        return res.status(400).json({
+          success: false,
+          message: 'Nomor telepon tenant tidak valid. Perbarui profil toko terlebih dahulu.',
+        });
+      }
 
       const paymentData = await IpaymuService.createPayment({
         product: [`${pkg.nama_paket} - Lark Laundry`],
