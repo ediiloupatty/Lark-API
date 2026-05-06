@@ -332,3 +332,120 @@ export const completeSetup = async (req: AuthRequest, res: Response) => {
     res.status(500).json({ status: 'error', message: 'Gagal menyimpan data toko.' });
   }
 };
+
+// ── Template Definitions ──────────────────────────────────────────
+// Hardcoded preset templates for wizard Step 2. Each template defines
+// services (per-kg pricing) and packages (duration-based surcharge).
+const TEMPLATES: Record<string, {
+  label: string;
+  services: { nama_layanan: string; harga_per_kg: number; deskripsi: string; durasi_hari: number }[];
+  packages: { nama: string; durasi_jam: number; harga_tambahan: number }[];
+}> = {
+  standar: {
+    label: 'Laundry Standar',
+    services: [
+      { nama_layanan: 'Cuci Biasa', harga_per_kg: 5000, deskripsi: 'Layanan cuci regular', durasi_hari: 3 },
+      { nama_layanan: 'Cuci Setrika', harga_per_kg: 7000, deskripsi: 'Layanan cuci + setrika', durasi_hari: 3 },
+      { nama_layanan: 'Setrika Saja', harga_per_kg: 4000, deskripsi: 'Layanan setrika saja', durasi_hari: 1 },
+    ],
+    packages: [
+      { nama: 'Reguler', durasi_jam: 72, harga_tambahan: 0 },
+      { nama: 'Express', durasi_jam: 24, harga_tambahan: 3000 },
+      { nama: 'Kilat', durasi_jam: 6, harga_tambahan: 5000 },
+    ],
+  },
+  hotel: {
+    label: 'Laundry Hotel / Penginapan',
+    services: [
+      { nama_layanan: 'Cuci Sprei & Bed Cover', harga_per_kg: 8000, deskripsi: 'Cuci sprei, sarung bantal, bed cover', durasi_hari: 2 },
+      { nama_layanan: 'Cuci Handuk', harga_per_kg: 6000, deskripsi: 'Cuci handuk mandi & handuk kecil', durasi_hari: 1 },
+      { nama_layanan: 'Cuci Selimut & Gordyn', harga_per_kg: 10000, deskripsi: 'Cuci selimut tebal, gordyn, karpet kecil', durasi_hari: 3 },
+    ],
+    packages: [
+      { nama: 'Reguler', durasi_jam: 48, harga_tambahan: 0 },
+      { nama: 'Express', durasi_jam: 12, harga_tambahan: 5000 },
+      { nama: 'Kilat', durasi_jam: 4, harga_tambahan: 10000 },
+    ],
+  },
+  premium: {
+    label: 'Laundry Premium / Dry Clean',
+    services: [
+      { nama_layanan: 'Dry Clean', harga_per_kg: 15000, deskripsi: 'Layanan dry clean untuk pakaian formal', durasi_hari: 3 },
+      { nama_layanan: 'Cuci Jas & Blazer', harga_per_kg: 20000, deskripsi: 'Cuci jas, blazer, setelan formal', durasi_hari: 3 },
+      { nama_layanan: 'Cuci Gaun & Dress', harga_per_kg: 25000, deskripsi: 'Cuci gaun, dress, kebaya, batik premium', durasi_hari: 5 },
+    ],
+    packages: [
+      { nama: 'Standar', durasi_jam: 72, harga_tambahan: 0 },
+      { nama: 'Express', durasi_jam: 24, harga_tambahan: 10000 },
+      { nama: 'Prioritas', durasi_jam: 8, harga_tambahan: 20000 },
+    ],
+  },
+};
+
+// POST /api/v1/sync/apply-template
+// Replaces existing services & packages with a preset template.
+// Called from wizard Step 2 when user selects a template.
+export const applyTemplate = async (req: AuthRequest, res: Response) => {
+  try {
+    const tenantId = req.user?.tenant_id;
+    const role = req.user?.role || '';
+    if (!tenantId) {
+      return res.status(401).json({ status: 'error', message: 'Token tidak valid.' });
+    }
+    if (!['admin', 'owner', 'super_admin'].includes(role)) {
+      return res.status(403).json({ status: 'error', message: 'Akses ditolak.' });
+    }
+
+    const { template_id } = req.body;
+    if (!template_id || !TEMPLATES[template_id]) {
+      return res.status(400).json({
+        status: 'error',
+        message: `Template tidak valid. Pilihan: ${Object.keys(TEMPLATES).join(', ')}`,
+      });
+    }
+
+    const tpl = TEMPLATES[template_id];
+
+    await db.$transaction(async (tx) => {
+      // 1. Hapus semua services & packages lama (yang belum dipakai di order)
+      await tx.services.deleteMany({ where: { tenant_id: tenantId } });
+      await tx.paket_laundry.deleteMany({ where: { tenant_id: tenantId } });
+
+      // 2. Insert template baru
+      await tx.services.createMany({
+        data: tpl.services.map((s) => ({ tenant_id: tenantId, ...s })),
+      });
+      await tx.paket_laundry.createMany({
+        data: tpl.packages.map((p) => ({ tenant_id: tenantId, ...p })),
+      });
+    });
+
+    res.json({
+      status: 'success',
+      message: `Template "${tpl.label}" berhasil diterapkan.`,
+      data: { template_id, label: tpl.label },
+    });
+  } catch (err: any) {
+    console.error('[ApplyTemplate Error]', err);
+    // Jika gagal karena foreign key (services/packages sudah dipakai di order)
+    if (err?.code === 'P2003') {
+      return res.status(409).json({
+        status: 'error',
+        message: 'Tidak bisa mengganti template karena sudah ada pesanan yang menggunakan layanan saat ini.',
+      });
+    }
+    res.status(500).json({ status: 'error', message: 'Gagal menerapkan template.' });
+  }
+};
+
+// GET /api/v1/sync/templates
+// Returns available templates for wizard Step 2.
+export const getTemplates = async (_req: AuthRequest, res: Response) => {
+  const result = Object.entries(TEMPLATES).map(([id, t]) => ({
+    id,
+    label: t.label,
+    services: t.services.map((s) => ({ nama: s.nama_layanan, harga: s.harga_per_kg, deskripsi: s.deskripsi })),
+    packages: t.packages.map((p) => ({ nama: p.nama, durasi_jam: p.durasi_jam, harga_tambahan: p.harga_tambahan })),
+  }));
+  res.json({ status: 'success', data: result });
+};
