@@ -41,7 +41,7 @@ export class PaymentController {
       const referenceId = `SUB-${tenantId}-${Date.now()}`;
 
       const paymentData = await IpaymuService.createPayment({
-        product: [pkg.nama_paket],
+        product: [`${pkg.icon || ''} ${pkg.nama_paket} - Lark Laundry`],
         qty: [1],
         price: [Number(pkg.harga)],
         returnUrl: `${appUrl}/dashboard?payment=success&tenant=${tenantId}`,
