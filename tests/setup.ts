@@ -67,6 +67,12 @@ export async function seedTestData(): Promise<TestContext> {
     // Column may already exist, ignore
   }
 
+  try {
+    await db.$queryRawUnsafe(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS timezone VARCHAR(50) DEFAULT 'Asia/Makassar'`);
+  } catch (e: any) {
+    // Column may already exist, ignore
+  }
+
   const adminUsername = `${TEST_PREFIX}admin_${Date.now()}`;
   const staffUsername = `${TEST_PREFIX}staff_${Date.now()}`;
   const hashedPw = await bcrypt.hash('testpassword123', 10);
