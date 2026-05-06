@@ -9,7 +9,7 @@ export const getProfile = async (req: AuthRequest, res: Response) => {
     if (!userId) return res.status(401).json({ status: 'error', message: 'Token tidak valid' });
 
     const profileRes = await db.$queryRawUnsafe<any[]>(`
-      SELECT u.username, u.nama, u.email, u.role, u.no_hp, u.alamat,
+      SELECT u.username, u.nama, u.email, u.role, u.no_hp, u.alamat, u.tenant_id,
              t.name as tenant_name, t.address as tenant_alamat, t.phone as tenant_no_hp
       FROM users u 
       LEFT JOIN tenants t ON u.tenant_id = t.id 
@@ -21,6 +21,12 @@ export const getProfile = async (req: AuthRequest, res: Response) => {
       const roleMap: any = { super_admin: 'Owner', admin: 'Admin', owner: 'Owner', karyawan: 'Staff' };
       const outRole = roleMap[p.role] || p.role;
 
+      let needs_setup = false;
+      if (p.tenant_id && outRole !== 'Staff') {
+        const outletCount = await db.outlets.count({ where: { tenant_id: p.tenant_id } });
+        needs_setup = outletCount === 0;
+      }
+
       res.json({
         status: 'success',
         message: 'Profil berhasil diambil',
@@ -31,6 +37,7 @@ export const getProfile = async (req: AuthRequest, res: Response) => {
           role: outRole,
           no_hp: p.no_hp,
           alamat: p.alamat,
+          needs_setup,
           tenant: {
             nama: p.tenant_name || '',
             alamat: p.tenant_alamat || '',
