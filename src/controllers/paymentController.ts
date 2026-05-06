@@ -50,7 +50,7 @@ export class PaymentController {
         price: [Number(pkg.harga)],
         returnUrl: `${appUrl}/dashboard?payment=success&tenant=${tenantId}`,
         cancelUrl: `${appUrl}/dashboard?payment=canceled&tenant=${tenantId}`,
-        notifyUrl: `${appUrl}/api/payments/notify`,
+        notifyUrl: `${appUrl}/api/v1/payments/notify`,
         referenceId,
         buyerName: tenant.name,
         buyerEmail: tenant.email || 'support@larklaundry.com',
@@ -72,9 +72,10 @@ export class PaymentController {
 
     } catch (error: unknown) {
       console.error('[iPaymu] Create payment error:', error);
+      const errMsg = error instanceof Error ? error.message : 'Terjadi kesalahan saat memproses pembayaran.';
       return res.status(500).json({
         success: false,
-        message: 'Terjadi kesalahan saat memproses pembayaran.'
+        message: errMsg
       });
     }
   }
@@ -152,7 +153,7 @@ export class PaymentController {
         price: [price ? parseInt(price) : 10000],
         returnUrl: `${appUrl}/dashboard?payment=success`,
         cancelUrl: `${appUrl}/dashboard?payment=canceled`,
-        notifyUrl: `${appUrl}/api/payments/notify`,
+        notifyUrl: `${appUrl}/api/v1/payments/notify`,
         buyerName: 'iPaymu Reviewer',
         buyerEmail: 'support@ipaymu.com',
         buyerPhone: '081234567890'
