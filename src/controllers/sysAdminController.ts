@@ -4,7 +4,7 @@ import { db } from '../config/db';
 import { pool } from '../config/db';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
-import { invalidateSubscriptionCache } from '../middlewares/subscriptionGuard';
+import { invalidateSubscriptionCache, computeSubscriptionStatus } from '../middlewares/subscriptionGuard';
 import { getLatestSnapshot, runHealthCheckWithSnapshot } from '../schedulers/healthMonitor';
 import { getErrorStats as getErrorStatsData } from '../middlewares/errorTracker';
 import { saveNotification, sendPushToAdmins } from '../services/firebaseService';
@@ -113,6 +113,8 @@ export const getTenantsList = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ success: false, error: 'Akses ditolak. Khusus Master Admin.' });
     }
 
+    const statusFilter = (req.query.status_filter as string) || '';
+
     const tenants = await db.tenants.findMany({
       select: {
         id: true,
@@ -125,15 +127,54 @@ export const getTenantsList = async (req: AuthRequest, res: Response) => {
         is_active: true,
         created_at: true,
         _count: {
-          select: { orders: true, outlets: true }
+          select: { orders: true, outlets: true, users: true }
         }
       },
       orderBy: { created_at: 'desc' }
     });
 
+    // Enrich setiap tenant dengan computed subscription status
+    const enrichedTenants = tenants.map(t => {
+      // Tenant free tidak memiliki subscription_until
+      if (t.subscription_plan === 'free' || !t.subscription_until) {
+        return {
+          ...t,
+          subscription_status: 'free' as const,
+          days_remaining: null,
+          can_create_order: true,
+          grace_until: null,
+        };
+      }
+
+      const subStatus = computeSubscriptionStatus(t.subscription_until);
+      return {
+        ...t,
+        subscription_status: subStatus.status,
+        days_remaining: subStatus.daysLeft,
+        can_create_order: subStatus.canCreateOrder,
+        grace_until: subStatus.graceUntil,
+      };
+    });
+
+    // Filter berdasarkan subscription status jika diberikan
+    const validFilters = ['active', 'grace', 'expired', 'free'];
+    const filtered = statusFilter && validFilters.includes(statusFilter)
+      ? enrichedTenants.filter(t => t.subscription_status === statusFilter)
+      : enrichedTenants;
+
+    // Summary counts untuk stat cards di frontend
+    const summary = {
+      total: enrichedTenants.length,
+      active: enrichedTenants.filter(t => t.subscription_status === 'active').length,
+      grace: enrichedTenants.filter(t => t.subscription_status === 'grace').length,
+      expired: enrichedTenants.filter(t => t.subscription_status === 'expired').length,
+      free: enrichedTenants.filter(t => t.subscription_status === 'free').length,
+    };
+
     return res.status(200).json({
       success: true,
-      data: tenants
+      data: filtered,
+      summary,
     });
   } catch (error: any) {
     console.error('[SysAdminController] getTenantsList error:', error);
