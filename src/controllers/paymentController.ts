@@ -110,7 +110,7 @@ export class PaymentController {
           await db.tenants.update({
             where: { id: tenantId },
             data: {
-              subscription_plan: 'premium',
+              subscription_plan: 'month_1',
               subscription_until: newExpiry,
               is_active: true,
             }
