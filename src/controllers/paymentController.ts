@@ -23,10 +23,6 @@ const PLAN_DURATION_DAYS: Record<string, number> = {
   months_12: 365,
 };
 
-// Menyimpan mapping invoiceId → { tenantId, planCode } sementara sampai webhook diterima.
-// Invoice Mayar expire dalam 24 jam, jadi entry ini tidak akan menumpuk terlalu lama.
-const pendingInvoices = new Map<string, { tenantId: number; planCode: string }>();
-
 export class PaymentController {
 
   static async createPayment(req: AuthRequest, res: Response) {
@@ -71,7 +67,7 @@ export class PaymentController {
         });
       }
 
-      const expiredAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
       const invoiceData = await MayarService.createInvoice({
         name: tenant.name,
@@ -79,7 +75,7 @@ export class PaymentController {
         mobile: sanitizedPhone,
         redirectUrl: `${appUrl}/dashboard?payment=success&tenant=${tenantId}`,
         description: `Langganan Lark Laundry paket ${pkg.nama_paket} — ${pkg.deskripsi_singkat || 'Kelola laundry lebih mudah & profesional.'}`,
-        expiredAt,
+        expiredAt: expiresAt.toISOString(),
         items: [
           {
             quantity: 1,
@@ -93,8 +89,15 @@ export class PaymentController {
         },
       });
 
-      // Simpan mapping invoiceId → { tenantId, planCode } untuk dipakai saat webhook masuk
-      pendingInvoices.set(invoiceData.id, { tenantId: Number(tenantId), planCode });
+      // Simpan mapping invoice → tenant+plan ke DB agar bertahan meski server restart
+      await db.subscription_invoices.create({
+        data: {
+          invoice_id: invoiceData.id,
+          tenant_id: Number(tenantId),
+          plan_code: planCode,
+          expires_at: expiresAt,
+        },
+      });
 
       console.info(`[Mayar] Invoice created: ${invoiceData.id} | tenant ${tenantId} | plan ${planCode}`);
 
@@ -118,7 +121,6 @@ export class PaymentController {
       const payload: MayarWebhookPayload = req.body;
       console.info('[Mayar] Webhook received:', JSON.stringify(payload));
 
-      // Selain "purchase", terima juga event lain agar tidak error (testing, reminder, dll)
       if (payload.event !== 'purchase') {
         console.info(`[Mayar] Ignoring non-purchase event: ${payload.event}`);
         return res.status(200).send('OK');
@@ -131,22 +133,29 @@ export class PaymentController {
         return res.status(200).send('OK');
       }
 
-      // Ambil tenantId dan planCode dari map yang disimpan saat membuat invoice
-      const mapping = pendingInvoices.get(data.id);
-      if (!mapping) {
-        console.warn(`[Mayar] No pending invoice found for id: ${data.id}`);
+      // Ambil mapping dari DB
+      const invoiceRecord = await db.subscription_invoices.findUnique({
+        where: { invoice_id: data.id },
+      });
+
+      if (!invoiceRecord) {
+        console.warn(`[Mayar] No invoice record found for id: ${data.id}`);
         return res.status(200).send('OK');
       }
 
-      const { tenantId, planCode } = mapping;
-      pendingInvoices.delete(data.id);
+      // Cegah proses ganda jika Mayar kirim webhook lebih dari sekali
+      if (invoiceRecord.processed) {
+        console.info(`[Mayar] Invoice ${data.id} already processed, skipping`);
+        return res.status(200).send('OK');
+      }
 
+      const { tenant_id: tenantId, plan_code: planCode } = invoiceRecord;
       const durationDays = PLAN_DURATION_DAYS[planCode] ?? 30;
 
       try {
         const currentTenant = await db.tenants.findFirst({ where: { id: tenantId } });
 
-        // Jika langganan masih aktif, extend dari tanggal kedaluwarsa yang ada
+        // Extend dari tanggal aktif jika masih berlaku, jika tidak mulai dari sekarang
         const baseDate =
           currentTenant?.subscription_until && new Date(currentTenant.subscription_until) > new Date()
             ? new Date(currentTenant.subscription_until)
@@ -161,6 +170,12 @@ export class PaymentController {
             subscription_until: newExpiry,
             is_active: true,
           },
+        });
+
+        // Tandai invoice sebagai sudah diproses
+        await db.subscription_invoices.update({
+          where: { invoice_id: data.id },
+          data: { processed: true },
         });
 
         console.info(`[Mayar] Subscription updated: tenant ${tenantId} | plan ${planCode} | until ${newExpiry.toISOString()}`);
