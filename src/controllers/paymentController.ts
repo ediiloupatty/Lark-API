@@ -14,6 +14,7 @@ interface MayarWebhookPayload {
     amount?: number;
     productId?: string;
     productName?: string;
+    transactionStatus?: string;
   };
 }
 
@@ -126,31 +127,35 @@ export class PaymentController {
       const payload: MayarWebhookPayload = req.body;
       console.info('[Mayar] Webhook received:', JSON.stringify(payload));
 
-      if (payload.event !== 'purchase') {
-        console.info(`[Mayar] Ignoring non-purchase event: ${payload.event}`);
+      const PAYMENT_EVENTS = ['payment.received', 'purchase'];
+      if (!PAYMENT_EVENTS.includes(payload.event)) {
+        console.info(`[Mayar] Ignoring non-payment event: ${payload.event}`);
         return res.status(200).send('OK');
       }
 
       const { data } = payload;
 
       if (data.status !== 'SUCCESS') {
-        console.info(`[Mayar] Payment not successful: status=${data.status}, invoiceId=${data.id}`);
+        console.info(`[Mayar] Payment not successful: status=${data.status}`);
         return res.status(200).send('OK');
       }
 
+      // productId = invoice ID yang kita buat; data.id = transaction ID
+      const invoiceId = data.productId || data.id;
+
       // Ambil mapping dari DB
       const invoiceRecord = await db.subscription_invoices.findUnique({
-        where: { invoice_id: data.id },
+        where: { invoice_id: invoiceId },
       });
 
       if (!invoiceRecord) {
-        console.warn(`[Mayar] No invoice record found for id: ${data.id}`);
+        console.warn(`[Mayar] No invoice record found for invoiceId: ${invoiceId}`);
         return res.status(200).send('OK');
       }
 
       // Cegah proses ganda jika Mayar kirim webhook lebih dari sekali
       if (invoiceRecord.processed) {
-        console.info(`[Mayar] Invoice ${data.id} already processed, skipping`);
+        console.info(`[Mayar] Invoice ${invoiceId} already processed, skipping`);
         return res.status(200).send('OK');
       }
 
@@ -179,7 +184,7 @@ export class PaymentController {
 
         // Tandai invoice sebagai sudah diproses
         await db.subscription_invoices.update({
-          where: { invoice_id: data.id },
+          where: { invoice_id: invoiceId },
           data: { processed: true },
         });
 
