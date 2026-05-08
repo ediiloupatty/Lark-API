@@ -19,9 +19,9 @@ interface MayarWebhookPayload {
 }
 
 const PLAN_DURATION_DAYS: Record<string, number> = {
-  month_1: 30,
-  months_3: 90,
-  months_12: 365,
+  '1_month': 30,
+  '3_months': 90,
+  '12_months': 365,
 };
 
 export class PaymentController {
