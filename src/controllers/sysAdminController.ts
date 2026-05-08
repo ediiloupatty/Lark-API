@@ -304,6 +304,76 @@ export const extendSubscription = async (req: AuthRequest, res: Response) => {
 };
 
 /* ═══════════════════════════════════════════════════════
+   OVERRIDE SUBSCRIPTION
+═══════════════════════════════════════════════════════ */
+export const overrideSubscription = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    const tenantId = parseInt(req.params.id as string);
+    if (isNaN(tenantId)) {
+      return res.status(400).json({ success: false, error: 'ID Tenant tidak valid.' });
+    }
+
+    const { plan, days } = req.body;
+    const validPlans = ['free', '1_month', '3_months', '12_months'];
+    if (!plan || !validPlans.includes(plan)) {
+      return res.status(400).json({ success: false, error: `Plan tidak valid. Pilihan: ${validPlans.join(', ')}` });
+    }
+
+    const defaultDays: Record<string, number> = { free: 0, '1_month': 30, '3_months': 90, '12_months': 365 };
+    const durationDays = typeof days === 'number' && days > 0 ? days : defaultDays[plan];
+
+    const tenant = await db.tenants.findUnique({ where: { id: tenantId } });
+    if (!tenant) {
+      return res.status(404).json({ success: false, error: 'Tenant tidak ditemukan.' });
+    }
+
+    const newDate = plan === 'free' ? null : new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000);
+
+    const updated = await db.tenants.update({
+      where: { id: tenantId },
+      data: {
+        subscription_plan: plan as any,
+        subscription_until: newDate,
+        is_active: true,
+      },
+    });
+
+    await db.audit_logs.create({
+      data: {
+        actor_user_id: req.user.user_id,
+        tenant_id: tenantId,
+        entity_type: 'tenant',
+        entity_id: tenantId,
+        action: 'extend_subscription',
+        metadata: {
+          override: true,
+          previous_plan: tenant.subscription_plan,
+          new_plan: plan,
+          previous_until: tenant.subscription_until,
+          new_until: newDate,
+          days: durationDays,
+        },
+      },
+    });
+
+    invalidateSubscriptionCache(tenantId);
+
+    return res.status(200).json({
+      success: true,
+      message: `Langganan berhasil diubah ke ${plan}${newDate ? ` hingga ${newDate.toLocaleDateString('id-ID')}` : ''}.`,
+      data: updated,
+    });
+  } catch (error: any) {
+    console.error('[SysAdminController] overrideSubscription error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal mengubah langganan.' });
+  }
+};
+
+/* ═══════════════════════════════════════════════════════
    FINANCE & BILLING
 ═══════════════════════════════════════════════════════ */
 export const getFinanceData = async (req: AuthRequest, res: Response) => {

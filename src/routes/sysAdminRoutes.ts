@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import {
-  getGlobalStats, getTenantsList, getSystemHealth, toggleTenantStatus, extendSubscription,
+  getGlobalStats, getTenantsList, getSystemHealth, toggleTenantStatus, extendSubscription, overrideSubscription,
   getFinanceData, getAuditLogs, getGlobalSettings,
   // Blog CMS
   listBlogArticlesAdmin, createBlogArticle, updateBlogArticle, deleteBlogArticle,
@@ -31,6 +31,7 @@ router.get('/stats', getGlobalStats);
 router.get('/tenants', getTenantsList);
 router.post('/tenants/:id/toggle-status', toggleTenantStatus);
 router.post('/tenants/:id/extend-subscription', extendSubscription);
+router.post('/tenants/:id/override-subscription', overrideSubscription);
 router.get('/finance', getFinanceData);
 router.get('/audit-logs', getAuditLogs);
 router.get('/global-settings', getGlobalSettings);
