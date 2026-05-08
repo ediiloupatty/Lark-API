@@ -334,50 +334,31 @@ export const completeSetup = async (req: AuthRequest, res: Response) => {
 };
 
 // ── Template Definitions ──────────────────────────────────────────
-// Hardcoded preset templates for wizard Step 2. Each template defines
-// services (per-kg pricing) and packages (duration-based surcharge).
+// Satu template lengkap dengan 10 layanan umum + 3 paket durasi.
+// User opt-in dari halaman Kelola Layanan (banner template).
 const TEMPLATES: Record<string, {
   label: string;
   services: { nama_layanan: string; harga_per_kg: number; deskripsi: string; durasi_hari: number }[];
   packages: { nama: string; durasi_jam: number; harga_tambahan: number }[];
 }> = {
-  standar: {
-    label: 'Laundry Standar',
+  lengkap: {
+    label: 'Template Laundry Lengkap',
     services: [
-      { nama_layanan: 'Cuci Biasa', harga_per_kg: 5000, deskripsi: 'Layanan cuci regular', durasi_hari: 3 },
-      { nama_layanan: 'Cuci Setrika', harga_per_kg: 7000, deskripsi: 'Layanan cuci + setrika', durasi_hari: 3 },
-      { nama_layanan: 'Setrika Saja', harga_per_kg: 4000, deskripsi: 'Layanan setrika saja', durasi_hari: 1 },
+      { nama_layanan: 'Cuci Biasa', harga_per_kg: 5000, deskripsi: 'Cuci kiloan reguler', durasi_hari: 3 },
+      { nama_layanan: 'Cuci + Setrika', harga_per_kg: 7000, deskripsi: 'Cuci kiloan + setrika rapi', durasi_hari: 3 },
+      { nama_layanan: 'Setrika Saja', harga_per_kg: 4000, deskripsi: 'Hanya setrika tanpa cuci', durasi_hari: 1 },
+      { nama_layanan: 'Cuci Sprei & Bed Cover', harga_per_kg: 8000, deskripsi: 'Sprei, sarung bantal, bed cover', durasi_hari: 2 },
+      { nama_layanan: 'Cuci Selimut', harga_per_kg: 12000, deskripsi: 'Selimut tebal & gordyn', durasi_hari: 3 },
+      { nama_layanan: 'Cuci Boneka', harga_per_kg: 15000, deskripsi: 'Boneka kecil sampai besar', durasi_hari: 3 },
+      { nama_layanan: 'Cuci Sepatu', harga_per_kg: 15000, deskripsi: 'Sepatu kets, kanvas, sneakers', durasi_hari: 2 },
+      { nama_layanan: 'Cuci Tas', harga_per_kg: 20000, deskripsi: 'Tas ransel, totebag, tas kerja', durasi_hari: 3 },
+      { nama_layanan: 'Cuci Jas & Gaun', harga_per_kg: 25000, deskripsi: 'Jas, gaun, kebaya, batik premium', durasi_hari: 5 },
+      { nama_layanan: 'Cuci Karpet', harga_per_kg: 20000, deskripsi: 'Karpet ukuran kecil-sedang', durasi_hari: 4 },
     ],
     packages: [
       { nama: 'Reguler', durasi_jam: 72, harga_tambahan: 0 },
       { nama: 'Express', durasi_jam: 24, harga_tambahan: 3000 },
       { nama: 'Kilat', durasi_jam: 6, harga_tambahan: 5000 },
-    ],
-  },
-  hotel: {
-    label: 'Laundry Hotel / Penginapan',
-    services: [
-      { nama_layanan: 'Cuci Sprei & Bed Cover', harga_per_kg: 8000, deskripsi: 'Cuci sprei, sarung bantal, bed cover', durasi_hari: 2 },
-      { nama_layanan: 'Cuci Handuk', harga_per_kg: 6000, deskripsi: 'Cuci handuk mandi & handuk kecil', durasi_hari: 1 },
-      { nama_layanan: 'Cuci Selimut & Gordyn', harga_per_kg: 10000, deskripsi: 'Cuci selimut tebal, gordyn, karpet kecil', durasi_hari: 3 },
-    ],
-    packages: [
-      { nama: 'Reguler', durasi_jam: 48, harga_tambahan: 0 },
-      { nama: 'Express', durasi_jam: 12, harga_tambahan: 5000 },
-      { nama: 'Kilat', durasi_jam: 4, harga_tambahan: 10000 },
-    ],
-  },
-  premium: {
-    label: 'Laundry Premium / Dry Clean',
-    services: [
-      { nama_layanan: 'Dry Clean', harga_per_kg: 15000, deskripsi: 'Layanan dry clean untuk pakaian formal', durasi_hari: 3 },
-      { nama_layanan: 'Cuci Jas & Blazer', harga_per_kg: 20000, deskripsi: 'Cuci jas, blazer, setelan formal', durasi_hari: 3 },
-      { nama_layanan: 'Cuci Gaun & Dress', harga_per_kg: 25000, deskripsi: 'Cuci gaun, dress, kebaya, batik premium', durasi_hari: 5 },
-    ],
-    packages: [
-      { nama: 'Standar', durasi_jam: 72, harga_tambahan: 0 },
-      { nama: 'Express', durasi_jam: 24, harga_tambahan: 10000 },
-      { nama: 'Prioritas', durasi_jam: 8, harga_tambahan: 20000 },
     ],
   },
 };

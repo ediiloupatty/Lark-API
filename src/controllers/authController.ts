@@ -426,23 +426,8 @@ export const registerAdmin = async (req: Request, res: Response) => {
         }
       });
 
-      // 3. Seed Default Services (harga default realistis agar admin bisa langsung operasi)
-      await tx.services.createMany({
-        data: [
-          { tenant_id: tenant.id, nama_layanan: 'Cuci Biasa', harga_per_kg: 5000, deskripsi: 'Layanan cuci regular', durasi_hari: 3 },
-          { tenant_id: tenant.id, nama_layanan: 'Cuci Setrika', harga_per_kg: 7000, deskripsi: 'Layanan cuci + setrika', durasi_hari: 3 },
-          { tenant_id: tenant.id, nama_layanan: 'Setrika Saja', harga_per_kg: 4000, deskripsi: 'Layanan setrika saja', durasi_hari: 1 },
-        ]
-      });
-
-      // 3b. Seed Default Packages (paket durasi dengan harga tambahan realistis)
-      await tx.paket_laundry.createMany({
-        data: [
-          { tenant_id: tenant.id, nama: 'Reguler', durasi_jam: 72, harga_tambahan: 0 },
-          { tenant_id: tenant.id, nama: 'Express', durasi_jam: 24, harga_tambahan: 3000 },
-          { tenant_id: tenant.id, nama: 'Kilat', durasi_jam: 6, harga_tambahan: 5000 },
-        ]
-      });
+      // CATATAN: Paket dan Layanan TIDAK di-seed otomatis. User pakai
+      // template (opt-in) atau tambah manual lewat misi onboarding di dashboard.
 
       // 4. Seed Settings
       await tx.tenant_settings.create({
@@ -724,6 +709,24 @@ export const googleLogin = async (req: Request, res: Response) => {
 
     // 4. Jika user benar-benar baru → Auto-Register sebagai owner dengan tenant baru
     if (!user) {
+      // Defensive: jika ada user soft-deleted yang masih pegang google_id ini,
+      // anonimkan dulu agar UNIQUE constraint tidak block auto-register.
+      // Ini terjadi saat admin soft-delete user tapi tidak clear field unik.
+      const orphanedGoogle = await db.users.findFirst({
+        where: { google_id: googleId, deleted_at: { not: null } },
+      });
+      if (orphanedGoogle) {
+        await db.users.update({
+          where: { id: orphanedGoogle.id },
+          data: {
+            google_id: null,
+            email: null,
+            username: `_deleted_${orphanedGoogle.id}_${orphanedGoogle.username}`,
+          },
+        });
+        console.info(`[Google Login] Anonimkan field unik dari soft-deleted user ID ${orphanedGoogle.id} agar auto-register bisa lanjut.`);
+      }
+
       // Generate username unik dari email (menghilangkan karakter non-alfanumerik)
       let baseUsername = googleEmail.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').substring(0, 30);
       let finalUsername = baseUsername;
@@ -771,23 +774,8 @@ export const googleLogin = async (req: Request, res: Response) => {
           },
         });
 
-        // Seed default services (harga default realistis agar admin bisa langsung operasi)
-        await tx.services.createMany({
-          data: [
-            { tenant_id: tenant.id, nama_layanan: 'Cuci Biasa', harga_per_kg: 5000, deskripsi: 'Layanan cuci regular', durasi_hari: 3 },
-            { tenant_id: tenant.id, nama_layanan: 'Cuci Setrika', harga_per_kg: 7000, deskripsi: 'Layanan cuci + setrika', durasi_hari: 3 },
-            { tenant_id: tenant.id, nama_layanan: 'Setrika Saja', harga_per_kg: 4000, deskripsi: 'Layanan setrika saja', durasi_hari: 1 },
-          ],
-        });
-
-        // Seed default packages (paket durasi dengan harga tambahan realistis)
-        await tx.paket_laundry.createMany({
-          data: [
-            { tenant_id: tenant.id, nama: 'Reguler', durasi_jam: 72, harga_tambahan: 0 },
-            { tenant_id: tenant.id, nama: 'Express', durasi_jam: 24, harga_tambahan: 3000 },
-            { tenant_id: tenant.id, nama: 'Kilat', durasi_jam: 6, harga_tambahan: 5000 },
-          ],
-        });
+        // CATATAN: Paket dan Layanan TIDAK di-seed otomatis. User pakai
+        // template (opt-in) atau tambah manual via misi onboarding.
 
         // Seed settings
         await tx.tenant_settings.create({
