@@ -1,4 +1,5 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
+import { AuthRequest } from '../middlewares/authMiddleware';
 import { db } from '../config/db';
 import { MayarService } from '../services/mayarService';
 
@@ -28,9 +29,11 @@ const pendingInvoices = new Map<string, { tenantId: number; planCode: string }>(
 
 export class PaymentController {
 
-  static async createPayment(req: Request, res: Response) {
+  static async createPayment(req: AuthRequest, res: Response) {
     try {
-      const { tenantId, planCode } = req.body;
+      const { planCode } = req.body;
+      // Mobile mengirim tenantId di body; web mengambil dari JWT
+      const tenantId = req.body.tenantId ?? req.user?.tenant_id;
       const appUrl = process.env.APP_URL || 'https://larklaundry.com';
 
       if (!tenantId || !planCode) {
@@ -110,7 +113,7 @@ export class PaymentController {
     }
   }
 
-  static async handleNotification(req: Request, res: Response) {
+  static async handleNotification(req: AuthRequest, res: Response) {
     try {
       const payload: MayarWebhookPayload = req.body;
       console.info('[Mayar] Webhook received:', JSON.stringify(payload));
