@@ -67,11 +67,16 @@ export class PaymentController {
         });
       }
 
+      // Ambil data owner untuk nama & email di invoice
+      const owner = await db.users.findFirst({
+        where: { tenant_id: Number(tenantId), role: 'owner' },
+      });
+
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
       const invoiceData = await MayarService.createInvoice({
-        name: tenant.name,
-        email: tenant.email || `tenant-${tenantId}@larklaundry.com`,
+        name: owner?.nama || tenant.name,
+        email: owner?.email || `tenant-${tenantId}@larklaundry.com`,
         mobile: sanitizedPhone,
         redirectUrl: `${appUrl}/dashboard?payment=success&tenant=${tenantId}`,
         description: `Langganan Lark Laundry paket ${pkg.nama_paket} — ${pkg.deskripsi_singkat || 'Kelola laundry lebih mudah & profesional.'}`,
