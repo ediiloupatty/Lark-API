@@ -71,7 +71,7 @@ export class PaymentController {
 
       const invoiceData = await MayarService.createInvoice({
         name: tenant.name,
-        email: tenant.email || process.env.MAYAR_DEFAULT_EMAIL || 'ediloupatty@gmail.com',
+        email: tenant.email || `tenant-${tenantId}@larklaundry.com`,
         mobile: sanitizedPhone,
         redirectUrl: `${appUrl}/dashboard?payment=success&tenant=${tenantId}`,
         description: `Langganan Lark Laundry paket ${pkg.nama_paket} — ${pkg.deskripsi_singkat || 'Kelola laundry lebih mudah & profesional.'}`,
