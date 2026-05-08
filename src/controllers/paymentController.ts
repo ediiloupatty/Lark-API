@@ -78,13 +78,13 @@ export class PaymentController {
         email: tenant.email || process.env.MAYAR_DEFAULT_EMAIL || 'ediloupatty@gmail.com',
         mobile: sanitizedPhone,
         redirectUrl: `${appUrl}/dashboard?payment=success&tenant=${tenantId}`,
-        description: `Berlangganan Lark Laundry - ${pkg.nama_paket}`,
+        description: `Langganan Lark Laundry paket ${pkg.nama_paket} — ${pkg.deskripsi_singkat || 'Kelola laundry lebih mudah & profesional.'}`,
         expiredAt,
         items: [
           {
             quantity: 1,
             rate: Number(pkg.harga),
-            description: `${pkg.nama_paket} - Lark Laundry`,
+            description: `Lark Laundry — Paket ${pkg.nama_paket} (Manajemen Laundry, Multi-outlet, Laporan Keuangan)`,
           },
         ],
         extraData: {
