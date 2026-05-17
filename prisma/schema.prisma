@@ -301,7 +301,7 @@ model subscription_packages {
   harga             Decimal           @db.Decimal(10, 2)
   badge_label       String?           @db.VarChar(50)
   deskripsi_singkat String?
-  xendit_link       String?
+  mayar_link       String?
   features          Json?
   is_active         Boolean?          @default(true)
   created_at        DateTime?         @default(now()) @db.Timestamp(6)

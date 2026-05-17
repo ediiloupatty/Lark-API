@@ -24,7 +24,7 @@ async function seedPackages() {
       harga: 23000,
       badge_label: null,
       deskripsi_singkat: 'Coba dulu tanpa komitmen panjang.',
-      xendit_link: 'https://larklaundry.myr.id/m/larklaundry-1-bulan',
+      mayar_link: 'https://larklaundry.myr.id/m/larklaundry-1-bulan',
       features: [
         'Manajemen Pesanan Laundry',
         'Multi-outlet & Multi-karyawan',
@@ -45,7 +45,7 @@ async function seedPackages() {
       harga: 59000,
       badge_label: 'Hemat 15%',           // Rp 10.000 lebih hemat vs 3× bulanan
       deskripsi_singkat: 'Lebih hemat untuk usaha yang sudah berjalan.',
-      xendit_link: 'https://larklaundry.myr.id/m/larklaundry-3-bulan',
+      mayar_link: 'https://larklaundry.myr.id/m/larklaundry-3-bulan',
       features: [
         'Manajemen Pesanan Laundry',
         'Multi-outlet & Multi-karyawan',
@@ -66,7 +66,7 @@ async function seedPackages() {
       harga: 199000,
       badge_label: 'Hemat Rp 77.000', // Rp 77.000 lebih hemat vs 12× bulanan
       deskripsi_singkat: 'Investasi terbaik untuk satu tahun operasional.',
-      xendit_link: 'https://larklaundry.myr.id/m/larklaundry-12-bulan',
+      mayar_link: 'https://larklaundry.myr.id/m/larklaundry-12-bulan',
       features: [
         'Manajemen Pesanan Laundry',
         'Multi-outlet & Multi-karyawan',
@@ -91,7 +91,7 @@ async function seedPackages() {
         harga: p.harga,
         badge_label: p.badge_label,
         deskripsi_singkat: p.deskripsi_singkat,
-        xendit_link: p.xendit_link,
+        mayar_link: p.mayar_link,
         features: p.features,
         is_active: p.is_active,
       },

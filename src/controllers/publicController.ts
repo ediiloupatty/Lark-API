@@ -55,7 +55,7 @@ export const getLandingStats = async (req: Request, res: Response) => {
         harga: true,
         badge_label: true,
         deskripsi_singkat: true,
-        xendit_link: true,
+        mayar_link: true,
         features: true,
       },
     });
