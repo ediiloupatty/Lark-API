@@ -69,15 +69,24 @@ export class PaymentController {
       }
 
       // Ambil data owner untuk nama & email di invoice
+      // Selalu gunakan nama pribadi owner (bukan nama toko/tenant),
+      // agar invoice Mayar menampilkan identitas person, bukan nama bisnis.
       const owner = await db.users.findFirst({
         where: { tenant_id: Number(tenantId), role: 'owner' },
       });
 
+      if (!owner) {
+        return res.status(404).json({
+          success: false,
+          message: 'Data pemilik akun tidak ditemukan. Hubungi support.',
+        });
+      }
+
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
       const invoiceData = await MayarService.createInvoice({
-        name: owner?.nama || tenant.name,
-        email: owner?.email || `tenant-${tenantId}@larklaundry.com`,
+        name: owner.nama || owner.email?.split('@')[0] || 'Pelanggan',  // nama pribadi owner, BUKAN nama toko
+        email: owner.email || `tenant-${tenantId}@larklaundry.com`,
         mobile: sanitizedPhone,
         redirectUrl: `${appUrl}/dashboard?payment=success&tenant=${tenantId}`,
         description: `Langganan Lark Laundry paket ${pkg.nama_paket} — ${pkg.deskripsi_singkat || 'Kelola laundry lebih mudah & profesional.'}`,
