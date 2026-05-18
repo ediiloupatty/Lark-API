@@ -601,6 +601,7 @@ export const getPayments = async (req: AuthRequest, res: Response) => {
     }
 };
 
+// Pembayaran approval (idempotent — guard double-approve di H-3).
 export const approvePayment = async (req: AuthRequest, res: Response) => {
     try {
         const tenantId = req.user?.tenant_id;
