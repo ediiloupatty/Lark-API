@@ -128,8 +128,8 @@ describe('Finance Controller', () => {
     expect(res.body.status).toBe('success');
   });
 
-  // ✅ Normal: Approve payment
-  it('POST /sync/approve-payment — berhasil', async () => {
+  // ✅ Normal: Approve payment via payment.id
+  it('POST /sync/approve-payment — berhasil via payment.id', async () => {
     // Create order first to get a payment
     const orderRes = await request(app)
       .post('/api/v1/sync/create-order')
@@ -155,5 +155,64 @@ describe('Finance Controller', () => {
       // Payment might not exist in this flow, skip gracefully
       expect(true).toBe(true);
     }
+  });
+
+  // 🐛 Regression: bug 2026-05 — FE OrdersTab sent order.id as `id` causing 404
+  // when payment.id != order.id. Endpoint now resolves payment by order_id fallback,
+  // and also accepts { order_id } explicitly.
+  it('POST /sync/approve-payment — via order_id (regression: BE fallback)', async () => {
+    const orderRes = await request(app)
+      .post('/api/v1/sync/create-order')
+      .set(authHeaders(ctx.adminToken))
+      .send({ customer_id: ctx.customerId, items: [{ service_id: ctx.serviceId, berat: 3 }], status_bayar: 'nanti' });
+
+    const orderId = orderRes.body.data.order_id;
+    expect(orderId).toBeTruthy();
+
+    const res = await request(app)
+      .post('/api/v1/sync/approve-payment')
+      .set(authHeaders(ctx.adminToken))
+      .send({ order_id: orderId });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toContain('Lunas');
+  });
+
+  // 🐛 Regression: legacy FE shape — { id } that turns out to be an order.id (not payment.id)
+  // must still resolve via fallback, not 404.
+  it('POST /sync/approve-payment — { id: order.id } legacy shape resolves via fallback', async () => {
+    const orderRes = await request(app)
+      .post('/api/v1/sync/create-order')
+      .set(authHeaders(ctx.adminToken))
+      .send({ customer_id: ctx.customerId, items: [{ service_id: ctx.serviceId, berat: 4 }], status_bayar: 'nanti' });
+
+    const orderId = orderRes.body.data.order_id;
+
+    // Sanity: confirm payment.id likely != order.id (autoincrement divergence in test data)
+    const { db } = await import('../src/config/db');
+    const [payment] = await db.$queryRawUnsafe<any[]>(
+      `SELECT id FROM payments WHERE order_id = $1 LIMIT 1`,
+      orderId
+    );
+    expect(payment).toBeTruthy();
+
+    const res = await request(app)
+      .post('/api/v1/sync/approve-payment')
+      .set(authHeaders(ctx.adminToken))
+      .send({ id: orderId }); // wrong shape — but BE falls back to order_id lookup
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toContain('Lunas');
+  });
+
+  // ⚠️ Edge: unknown id → 404
+  it('POST /sync/approve-payment — id tidak ditemukan returns 404', async () => {
+    const res = await request(app)
+      .post('/api/v1/sync/approve-payment')
+      .set(authHeaders(ctx.adminToken))
+      .send({ id: 99999999 });
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toContain('tidak ditemukan');
   });
 });

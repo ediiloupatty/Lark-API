@@ -234,7 +234,12 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
 
     let outlet_nama = 'Semua Cabang';
     if (outletId) {
-      const otRes = await db.$queryRawUnsafe<any[]>(`SELECT nama FROM outlets WHERE id = $1`, outletId);
+      // Tenant boundary: outletId may come from ?oid= query param (admin override).
+      // Filter by tenant_id to prevent cross-tenant outlet name disclosure.
+      const otRes = await db.$queryRawUnsafe<any[]>(
+        `SELECT nama FROM outlets WHERE id = $1 AND tenant_id = $2`,
+        outletId, tenantId
+      );
       if (otRes.length > 0) outlet_nama = otRes[0].nama;
     }
 
