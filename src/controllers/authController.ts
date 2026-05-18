@@ -406,7 +406,7 @@ export const registerAdmin = async (req: Request, res: Response) => {
           address: alamat?.trim() || 'Belum diatur',
           phone: no_hp?.trim() || 'Belum diatur',
           subscription_plan: 'free',
-          subscription_until: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days trial
+          subscription_until: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) // 14 days trial
         }
       });
 
@@ -755,7 +755,7 @@ export const googleLogin = async (req: Request, res: Response) => {
             address: 'Belum diatur',
             phone: 'Belum diatur',
             subscription_plan: 'free',
-            subscription_until: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            subscription_until: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days trial (Google signup)
           },
         });
 
