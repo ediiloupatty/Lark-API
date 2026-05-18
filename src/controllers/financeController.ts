@@ -614,21 +614,36 @@ export const approvePayment = async (req: AuthRequest, res: Response) => {
           return res.status(403).json({ status: 'error', message: 'Akses ditolak. Hanya admin yang bisa mengonfirmasi pembayaran.' });
         }
 
-        // H-1: Validasi input
-        const id = parseInt(req.body.id);
-        if (!id || isNaN(id)) {
-          return res.status(400).json({ status: 'error', message: 'ID pembayaran tidak valid.' });
+        // H-1: Validasi input — terima `id` (payment.id) atau `order_id` (lookup payment by order)
+        const rawPaymentId = parseInt(req.body.id);
+        const rawOrderId = parseInt(req.body.order_id);
+        if ((!rawPaymentId || isNaN(rawPaymentId)) && (!rawOrderId || isNaN(rawOrderId))) {
+          return res.status(400).json({ status: 'error', message: 'ID pembayaran atau order tidak valid.' });
         }
 
-        // H-2: Verifikasi pembayaran ada dan milik tenant ini
-        const existing = await db.$queryRaw<any[]>`
-          SELECT p.id, p.status_pembayaran, p.order_id
-          FROM payments p
-          WHERE p.id = ${id} AND p.tenant_id = ${tenantId}
-        `;
-        if (!existing || existing.length === 0) {
+        // H-2: Resolve payment — utamakan lookup by payment.id, fallback by order_id
+        // (FE OrdersTab sebelumnya kirim order.id sebagai `id` → menyebabkan 404 saat
+        // payment.id != order.id. Fallback ini menjaga backward-compat.)
+        let existing = rawPaymentId
+          ? await db.$queryRaw<any[]>`
+              SELECT p.id, p.status_pembayaran, p.order_id
+              FROM payments p
+              WHERE p.id = ${rawPaymentId} AND p.tenant_id = ${tenantId}
+            `
+          : [];
+        if (existing.length === 0) {
+          const lookupOrderId = rawOrderId || rawPaymentId;
+          existing = await db.$queryRaw<any[]>`
+            SELECT p.id, p.status_pembayaran, p.order_id
+            FROM payments p
+            WHERE p.order_id = ${lookupOrderId} AND p.tenant_id = ${tenantId}
+            ORDER BY p.id DESC LIMIT 1
+          `;
+        }
+        if (existing.length === 0) {
           return res.status(404).json({ status: 'error', message: 'Pembayaran tidak ditemukan.' });
         }
+        const paymentId = existing[0].id;
 
         // H-3: Cegah approve ganda — hanya pending yang bisa di-approve
         if (existing[0].status_pembayaran === 'lunas') {
@@ -639,17 +654,17 @@ export const approvePayment = async (req: AuthRequest, res: Response) => {
 
         // Update: set lunas + catat siapa yang mengonfirmasi (audit trail)
         await db.$executeRaw`
-            UPDATE payments p SET 
-              status_pembayaran = 'lunas', 
+            UPDATE payments p SET
+              status_pembayaran = 'lunas',
               tgl_pembayaran = NOW(),
               konfirmasi_pada = NOW(),
               dikonfirmasi_oleh = ${confirmingUserId},
-              jumlah_bayar = CASE 
-                WHEN COALESCE(p.jumlah_bayar, 0) = 0 
+              jumlah_bayar = CASE
+                WHEN COALESCE(p.jumlah_bayar, 0) = 0
                 THEN (SELECT COALESCE(o.total_harga, 0) FROM orders o WHERE o.id = p.order_id)
-                ELSE p.jumlah_bayar 
+                ELSE p.jumlah_bayar
               END
-            WHERE p.id = ${id} AND p.tenant_id = ${tenantId}
+            WHERE p.id = ${paymentId} AND p.tenant_id = ${tenantId}
         `;
         
         res.json({ status: 'success', message: 'Pembayaran Dikonfirmasi Lunas' });
