@@ -156,8 +156,14 @@ export const getOrders = async (req: AuthRequest, res: Response) => {
     }
 
     if (!isAdmin && staffOutletId) {
-      query += ` AND o.outlet_id = $${pIdx++}`;
+      // Karyawan di-scope ke outlet-nya, TAPI tetap perlu melihat pesanan
+      // admin yang dibuat tanpa outlet (outlet_id NULL). Tanpa fallback ini
+      // karyawan tidak akan pernah melihat order yang dibuat owner walau
+      // dalam tenant yang sama. tenant_id filter di atas tetap mencegah
+      // kebocoran lintas-tenant.
+      query += ` AND (o.outlet_id = $${pIdx} OR o.outlet_id IS NULL)`;
       params.push(staffOutletId);
+      pIdx++;
     }
 
     if (statusFilter) {

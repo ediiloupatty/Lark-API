@@ -122,7 +122,9 @@ export const pullChanges = async (req: AuthRequest, res: Response) => {
       let q = `SELECT id FROM orders WHERE tenant_id = $1 AND server_version > $2`;
       const params: any[] = [tenantId, sinceVersion];
       if (!isAdmin && outletId !== null) {
-        q += ` AND outlet_id = $3`;
+        // Include NULL-outlet orders so karyawan tetap menerima pesanan yang
+        // dibuat admin tanpa outlet eksplisit. Sama dengan logika getOrders.
+        q += ` AND (outlet_id = $3 OR outlet_id IS NULL)`;
         params.push(outletId);
       }
       q += ` ORDER BY server_version ASC LIMIT 100`;

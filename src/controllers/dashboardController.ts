@@ -26,10 +26,21 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
 
     // Helper to build parameterized outlet condition
     // Returns { clause, params } where clause is like "AND outlet_id = $2" and params is [outletId]
+    //
+    // Karyawan (non-admin) selalu di-scope ke outlet user-nya, tapi pesanan
+    // admin yang dibuat tanpa outlet_id (mis. owner mencoba membuat order)
+    // tersimpan dengan outlet_id NULL. Tanpa NULL fallback di sini, karyawan
+    // jadi tidak pernah melihat pesanan admin walaupun masih dalam tenant
+    // yang sama. Admin yang override via ?oid= tetap strict — kalau admin
+    // memilih outlet tertentu, mereka memang ingin lihat outlet itu saja.
+    const isImplicitScope = !isAdmin; // karyawan implicit scope
     const buildOutletCond = (pIdx: number, alias = '') => {
       const col = alias ? `${alias}.outlet_id` : 'outlet_id';
       if (outletId) {
-        return { clause: `AND ${col} = $${pIdx}`, params: [outletId], nextIdx: pIdx + 1 };
+        const clause = isImplicitScope
+          ? `AND (${col} = $${pIdx} OR ${col} IS NULL)`
+          : `AND ${col} = $${pIdx}`;
+        return { clause, params: [outletId], nextIdx: pIdx + 1 };
       }
       return { clause: '', params: [] as any[], nextIdx: pIdx };
     };
@@ -266,20 +277,25 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
     // - active dan <= 5 hari: warning (kuning)
     // - grace: danger (merah)
     // - expired: critical (merah gelap)
+    //
+    // Banner langganan hanya untuk admin/owner — karyawan tidak punya
+    // wewenang upgrade dan tidak perlu diganggu dengan info billing.
     let showBanner = false;
     let bannerType: 'info' | 'warning' | 'danger' | 'critical' = 'info';
-    if (subStatus.status === 'expired') {
-      showBanner = true;
-      bannerType = 'critical';
-    } else if (subStatus.status === 'grace') {
-      showBanner = true;
-      bannerType = 'danger';
-    } else if (subStatus.daysLeft <= 5) {
-      showBanner = true;
-      bannerType = 'warning';
-    } else if (subStatus.daysLeft <= 15) {
-      showBanner = true;
-      bannerType = 'info';
+    if (isAdmin) {
+      if (subStatus.status === 'expired') {
+        showBanner = true;
+        bannerType = 'critical';
+      } else if (subStatus.status === 'grace') {
+        showBanner = true;
+        bannerType = 'danger';
+      } else if (subStatus.daysLeft <= 5) {
+        showBanner = true;
+        bannerType = 'warning';
+      } else if (subStatus.daysLeft <= 15) {
+        showBanner = true;
+        bannerType = 'info';
+      }
     }
 
     // Fetch services dan packages untuk di-cache di perangkat mobile
