@@ -16,6 +16,25 @@ const pool = new Pool({
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
+// Daftar fitur premium — disinkronkan dengan landing page (pricing.f1–f14)
+// Semua paket berbagi fitur identik; durasi adalah satu-satunya pembeda.
+const PREMIUM_FEATURES = [
+  'Manajemen Pesanan Laundry',
+  'Multi-outlet & Multi-karyawan',
+  'Laporan Keuangan Harian & Bulanan',
+  'Konfirmasi & Riwayat Pembayaran',
+  'Manajemen Pelanggan & Staf',
+  'Sync Mobile Real-time (Offline-First)',
+  'Notifikasi WhatsApp Otomatis',
+  'Export Laporan PDF & CSV',
+  'Dashboard Analytics',
+  'Tracking Pesanan Pelanggan',
+  'Manajemen Produk & Parfum',
+  'Pencatatan Pengeluaran',
+  'Cetak Struk & Nota',
+  'Prioritas Support',
+];
+
 async function seedPackages() {
   const packages = [
     {
@@ -25,18 +44,7 @@ async function seedPackages() {
       badge_label: null,
       deskripsi_singkat: 'Coba dulu tanpa komitmen panjang.',
       mayar_link: 'https://larklaundry.myr.id/m/larklaundry-1-bulan',
-      features: [
-        'Manajemen Pesanan Laundry',
-        'Multi-outlet & Multi-karyawan',
-        'Laporan Keuangan Harian & Bulanan',
-        'Konfirmasi & Riwayat Pembayaran',
-        'Manajemen Pelanggan & Staf',
-        'Sync Mobile Real-time (Offline-First)',
-        'Notifikasi WhatsApp Otomatis',
-        'Export Laporan PDF',
-        'Dashboard Analytics',
-        'Prioritas Support',
-      ],
+      features: PREMIUM_FEATURES,
       is_active: true,
     },
     {
@@ -46,18 +54,7 @@ async function seedPackages() {
       badge_label: 'Hemat 15%',           // Rp 10.000 lebih hemat vs 3× bulanan
       deskripsi_singkat: 'Lebih hemat untuk usaha yang sudah berjalan.',
       mayar_link: 'https://larklaundry.myr.id/m/larklaundry-3-bulan',
-      features: [
-        'Manajemen Pesanan Laundry',
-        'Multi-outlet & Multi-karyawan',
-        'Laporan Keuangan Harian & Bulanan',
-        'Konfirmasi & Riwayat Pembayaran',
-        'Manajemen Pelanggan & Staf',
-        'Sync Mobile Real-time (Offline-First)',
-        'Notifikasi WhatsApp Otomatis',
-        'Export Laporan PDF',
-        'Dashboard Analytics',
-        'Prioritas Support',
-      ],
+      features: PREMIUM_FEATURES,
       is_active: true,
     },
     {
@@ -67,18 +64,7 @@ async function seedPackages() {
       badge_label: 'Hemat Rp 77.000', // Rp 77.000 lebih hemat vs 12× bulanan
       deskripsi_singkat: 'Investasi terbaik untuk satu tahun operasional.',
       mayar_link: 'https://larklaundry.myr.id/m/larklaundry-12-bulan',
-      features: [
-        'Manajemen Pesanan Laundry',
-        'Multi-outlet & Multi-karyawan',
-        'Laporan Keuangan Harian & Bulanan',
-        'Konfirmasi & Riwayat Pembayaran',
-        'Manajemen Pelanggan & Staf',
-        'Sync Mobile Real-time (Offline-First)',
-        'Notifikasi WhatsApp Otomatis',
-        'Export Laporan PDF',
-        'Dashboard Analytics',
-        'Prioritas Support',
-      ],
+      features: PREMIUM_FEATURES,
       is_active: true,
     },
   ];
