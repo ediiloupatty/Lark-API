@@ -57,6 +57,18 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
          const customerPhone = o.customer_phone || o.no_hp || o.phone || '';
          const orderStatus = o.status || 'diproses';
          const metodeAntar = o.metode_antar || 'antar_sendiri';
+         // Detail logistik jemput & antar (Bug C: dulu hilang saat sync offline)
+         const ongkir = Math.max(0, parseFloat(o.ongkos_kirim || 0) || 0);
+         const logistics: any = {};
+         if (o.pickup_method) logistics.pickup_method = o.pickup_method;
+         if (o.delivery_method) logistics.delivery_method = o.delivery_method;
+         if (o.pickup_zone) logistics.pickup_zone = o.pickup_zone;
+         if (o.delivery_zone) logistics.delivery_zone = o.delivery_zone;
+         if (o.pickup_address) logistics.alamat_jemput = o.pickup_address;
+         if (o.delivery_address) logistics.delivery_address = o.delivery_address;
+         if (o.pickup_location_link) logistics.pickup_location_link = o.pickup_location_link;
+         if (o.delivery_location_link) logistics.delivery_location_link = o.delivery_location_link;
+         if (o.catatan) logistics.catatan = o.catatan;
          // Support semua variasi payment status: lunas, dp, pending
          const rawPayStatus = (o.payment_status || o.status_pembayaran || '').toLowerCase();
          let paymentStatus: string;
@@ -246,7 +258,11 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
            }
          }
 
-         const finalTotalAmount = serverCalculatedTotal > 0 ? serverCalculatedTotal : totalAmount;
+         // Ongkir masuk grand total. Jalur server-recompute belum termasuk ongkir,
+         // jalur total-dari-client (totalAmount) sudah termasuk.
+         const finalTotalAmount = serverCalculatedTotal > 0
+           ? serverCalculatedTotal + ongkir
+           : totalAmount;
 
          // BUG-7 FIX: Support all valid payment methods including QRIS
          const VALID_PAY_METHODS = ['cash', 'transfer', 'qris'];
@@ -263,6 +279,8 @@ export const pushChanges = async (req: AuthRequest, res: Response) => {
                parfum_harga: parfumHarga > 0 ? parfumHarga : null,
                tgl_order: new Date(), // BUG-11 FIX: Always set order date
                metode_antar: metodeAntar === 'jemput' ? 'jemput' : 'antar_sendiri',
+               ...logistics,
+               ...(ongkir > 0 ? { ongkos_kirim: ongkir } : {}),
                outlet_id: safeOutletId,
                user_id: req.user?.user_id,
                client_id: clientId || null,

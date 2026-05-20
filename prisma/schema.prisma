@@ -153,6 +153,13 @@ model orders {
   server_version    BigInt?
   parfum_id         Int?
   parfum_harga      Decimal?            @default(0) @db.Decimal(10, 2)
+  pickup_method          String?        @db.VarChar(30)
+  delivery_method        String?        @db.VarChar(30)
+  pickup_zone            String?        @db.VarChar(20)
+  delivery_zone          String?        @db.VarChar(20)
+  delivery_address       String?
+  pickup_location_link   String?
+  delivery_location_link String?
   notifications     notifications[]
   order_details     order_details[]
   order_products    order_products[]
@@ -190,6 +197,24 @@ model outlets {
   payments       payments[]
   services       services[]
   users          users[]
+  outlet_delivery_rates outlet_delivery_rates[]
+}
+
+model outlet_delivery_rates {
+  id             Int       @id @default(autoincrement())
+  tenant_id      Int
+  outlet_id      Int
+  zone           String    @db.VarChar(20)
+  fee            Decimal   @default(0) @db.Decimal(10, 2)
+  is_active      Boolean?  @default(true)
+  created_at     DateTime? @default(now()) @db.Timestamp(6)
+  updated_at     DateTime? @default(now()) @db.Timestamp(6)
+  server_version BigInt?
+  outlets        outlets   @relation(fields: [outlet_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "outlet_delivery_rates_outlet_fk")
+  tenants        tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "outlet_delivery_rates_tenant_fk")
+
+  @@unique([outlet_id, zone], map: "outlet_delivery_rates_outlet_zone_key")
+  @@index([tenant_id], map: "idx_odr_tenant")
 }
 
 model paket_laundry {
@@ -354,6 +379,7 @@ model tenants {
   products             products[]
   parfums              parfums[]
   subscription_invoices subscription_invoices[]
+  outlet_delivery_rates outlet_delivery_rates[]
 }
 
 model user_sessions {

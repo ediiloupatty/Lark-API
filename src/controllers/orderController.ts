@@ -31,7 +31,9 @@ export const getOrders = async (req: AuthRequest, res: Response) => {
     let query = `
       SELECT o.id, o.client_id, o.server_version, o.updated_at,
              o.tracking_code, o.tgl_order, o.tgl_diproses, o.tgl_siap, o.tgl_selesai,
-             o.total_harga, o.status, o.metode_antar, 
+             o.total_harga, o.status, o.metode_antar, o.ongkos_kirim,
+             o.pickup_method, o.delivery_method, o.pickup_zone, o.delivery_zone,
+             o.delivery_address, o.pickup_location_link, o.delivery_location_link,
              o.estimasi_tanggal, o.estimasi_waktu, o.catatan, o.paket_id, o.alamat_jemput,
              c.nama as nama_pelanggan, c.no_hp, c.alamat as alamat_pelanggan,
              p.status_pembayaran, p.tgl_pembayaran, p.konfirmasi_pada, p.jumlah_bayar, p.metode_pembayaran as metode_bayar, p.bukti_pembayaran,
@@ -315,13 +317,19 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       delivery_method, 
       pickup_zone, 
       delivery_zone, 
-      pickup_address, 
-      delivery_address, 
-      metode_bayar, 
+      pickup_address,
+      delivery_address,
+      pickup_location_link,
+      delivery_location_link,
+      ongkos_kirim,
+      metode_bayar,
       status_bayar,
       metode_antar,
       catatan
     } = req.body;
+
+    // Ongkir: nilai dari client (boleh hasil edit manual staf), divalidasi >= 0
+    const ongkir = Math.max(0, Number(ongkos_kirim) || 0);
 
     if (!customer_id || !items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ status: 'error', message: 'Customer ID dan Items wajib diisi.' });
@@ -441,6 +449,16 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       if (pickup_address) orderData.alamat_jemput = pickup_address;
       if (userId) orderData.user_id = userId;
 
+      // ── Detail logistik jemput & antar (Bug C: dulu tidak pernah disimpan) ──
+      if (pickup_method) orderData.pickup_method = pickup_method;
+      if (delivery_method) orderData.delivery_method = delivery_method;
+      if (pickup_zone) orderData.pickup_zone = pickup_zone;
+      if (delivery_zone) orderData.delivery_zone = delivery_zone;
+      if (delivery_address) orderData.delivery_address = delivery_address;
+      if (pickup_location_link) orderData.pickup_location_link = pickup_location_link;
+      if (delivery_location_link) orderData.delivery_location_link = delivery_location_link;
+      if (ongkir > 0) orderData.ongkos_kirim = ongkir;
+
       const insertedOrder = await tx.orders.create({ data: orderData });
       const orderId = insertedOrder.id;
       
@@ -546,6 +564,9 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
           totalHarga += parfumHarga;
         }
       }
+
+      // Ongkir masuk ke grand total agar pembayaran "lunas" benar-benar lunas
+      totalHarga += ongkir;
 
       // Update Total + Parfum
       await tx.orders.update({

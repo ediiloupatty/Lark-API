@@ -6,6 +6,7 @@ import { getCustomers, addCustomer, updateCustomer, deleteCustomer } from '../co
 import { getServices, addService, updateService, deleteService } from '../controllers/serviceController';
 import { getOrders, createOrder, updateOrderStatus, payOrder, deleteOrder } from '../controllers/orderController';
 import { getOutlets, addOutlet, updateOutlet, deleteOutlet } from '../controllers/outletController';
+import { getDeliveryRates, updateDeliveryRates } from '../controllers/deliveryRateController';
 import { getStaff, addStaff, updateStaff, deleteStaff, toggleStaffStatus, getGlobalPermissions, updateGlobalPermissions, updateStaffPermissions } from '../controllers/staffController';
 import { authenticateToken } from '../middlewares/authMiddleware';
 import { authorizeRole } from '../middlewares/authorizeRole';
@@ -66,6 +67,10 @@ router.post('/add-outlet', authenticateToken, adminOnly, subscriptionGuard, addO
 router.put('/update-outlet', authenticateToken, adminOnly, updateOutlet);
 router.post('/delete-outlet', authenticateToken, adminOnly, deleteOutlet);
 router.delete('/delete-outlet', authenticateToken, adminOnly, deleteOutlet);
+
+// ── Tarif Ongkir per Outlet (GET semua role, PUT admin only) ──
+router.get('/delivery-rates', authenticateToken, getDeliveryRates);
+router.put('/delivery-rates', authenticateToken, adminOnly, updateDeliveryRates);
 
 // ── Staff (admin only — karyawan tidak boleh kelola staff lain) ──
 router.get('/staff', authenticateToken, adminOnly, getStaff);

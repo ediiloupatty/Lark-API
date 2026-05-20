@@ -33,6 +33,7 @@ export const pullChanges = async (req: AuthRequest, res: Response) => {
       customers: [],
       orders: [],
       outlets: [],  // [Bug #2 Fix] Sertakan outlet agar mobile selalu update
+      delivery_rates: [],  // Tarif ongkir per outlet per zona
     };
 
     // ── Services ────────────────────────────────────────────────
@@ -164,6 +165,28 @@ export const pullChanges = async (req: AuthRequest, res: Response) => {
     } catch (outletErr: any) {
       console.warn('[Sync Pull] Gagal ambil outlets:', outletErr?.message);
       data.outlets = [];
+    }
+
+    // ── Tarif Ongkir per Outlet ──────────────────────────────────
+    // Data kecil (maks 3 baris per outlet) → selalu kirim penuh, tidak perlu incremental.
+    try {
+      if (await syncTableExists(db, 'outlet_delivery_rates')) {
+        const rows = await db.$queryRawUnsafe<any[]>(
+          `SELECT id, outlet_id, zone, fee FROM outlet_delivery_rates
+           WHERE tenant_id = $1 AND is_active = true
+           ORDER BY outlet_id ASC, zone ASC`,
+          tenantId
+        );
+        data.delivery_rates = rows.map((r: any) => ({
+          id: Number(r.id),
+          outlet_id: Number(r.outlet_id),
+          zone: r.zone,
+          fee: Number(r.fee),
+        }));
+      }
+    } catch (rateErr: any) {
+      console.warn('[Sync Pull] Gagal ambil delivery_rates:', rateErr?.message);
+      data.delivery_rates = [];
     }
 
     // ── Metadata ─────────────────────────────────────────────────
