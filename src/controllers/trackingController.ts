@@ -144,6 +144,12 @@ export class TrackingController {
             tgl_order: order.tgl_order,
             estimasi_tanggal: order.estimasi_tanggal,
             total_harga: order.total_harga,
+            ongkos_kirim: order.ongkos_kirim,
+            metode_antar: order.metode_antar,
+            pickup_method: order.pickup_method,
+            delivery_method: order.delivery_method,
+            pickup_zone: order.pickup_zone,
+            delivery_zone: order.delivery_zone,
             tenant: (order as any).tenants?.name,
             customer: {
               nama: (order as any).customers?.nama,
