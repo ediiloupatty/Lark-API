@@ -166,8 +166,18 @@ async function fetchExistingTopics(): Promise<string[]> {
 // ── Title Similarity Check ────────────────────────────────────────────────────
 // Cek apakah judul baru terlalu mirip dengan judul yang sudah ada di database.
 // Menggunakan word overlap ratio + number pattern matching.
+// Kata domain & filler yang muncul di hampir SEMUA judul laundry — tidak boleh
+// dihitung sebagai sinyal kemiripan, kalau tidak semua judul dianggap mirip.
+const TITLE_STOPWORDS = new Set([
+  'laundry', 'bisnis', 'usaha', 'kiloan', 'cuci', 'cucian',
+  'yang', 'untuk', 'dengan', 'dari', 'dan', 'atau', 'ini', 'itu',
+  'buat', 'agar', 'biar', 'tanpa', 'lebih', 'saja', 'juga', 'bisa',
+  'akan', 'kamu', 'anda', 'tiap', 'ada', 'jadi', 'pakai',
+]);
+
 function isTitleTooSimilar(newTitle: string, existingTitles: string[]): { similar: boolean; matchedTitle?: string } {
-  const normalize = (t: string) => t.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 2);
+  const normalize = (t: string) => t.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/)
+    .filter(w => w.length > 2 && !TITLE_STOPWORDS.has(w));
   const newWords = new Set(normalize(newTitle));
   if (newWords.size === 0) return { similar: false };
 
@@ -185,10 +195,11 @@ function isTitleTooSimilar(newTitle: string, existingTitles: string[]): { simila
       if (existingWords.has(word)) overlap++;
     }
 
-    // Threshold 35% word overlap → terlalu mirip
-    // Sengaja longgar agar AI punya ruang untuk variasi topik serupa
+    // Threshold 50% overlap kata-bermakna (stopword sudah dibuang) → terlalu mirip.
+    // Lebih longgar dari sebelumnya karena domain laundry sempit; tanpa ini
+    // judul valid pun ikut tertolak hanya karena sama-sama soal "laundry".
     const ratio = overlap / Math.min(newWords.size, existingWords.size);
-    if (ratio >= 0.35) {
+    if (ratio >= 0.5) {
       return { similar: true, matchedTitle: existing };
     }
 
@@ -524,8 +535,18 @@ Judul max 80 karakter. TIDAK harus pakai angka.
   const titleMatch = cleaned.match(/---\s*TITLE\s*---\s*([\s\S]*?)---\s*EXCERPT\s*---/i);
   const excerptMatch = cleaned.match(/---\s*EXCERPT\s*---\s*([\s\S]*?)---\s*CATEGORY\s*---/i);
   const categoryMatch = cleaned.match(/---\s*CATEGORY\s*---\s*([\s\S]*?)---\s*READTIME\s*---/i);
-  const readTimeMatch = cleaned.match(/---\s*READTIME\s*---\s*([\s\S]*?)---\s*CONTENT\s*---/i);
-  const contentMatch = cleaned.match(/---\s*CONTENT\s*---\s*([\s\S]*)/i);
+  // Qwen sering LUPA menulis delimiter ---CONTENT---, langsung lompat dari nilai
+  // READTIME ke <p> HTML. Karena itu boundary READTIME juga menerima awal tag
+  // HTML (<p>/<h2>) atau akhir teks, bukan hanya ---CONTENT---.
+  const readTimeMatch = cleaned.match(/---\s*READTIME\s*---\s*([\s\S]*?)(?:---\s*CONTENT\s*---|<p[\s>]|<h2[\s>]|$)/i);
+  let contentMatch = cleaned.match(/---\s*CONTENT\s*---\s*([\s\S]*)/i);
+  // Fallback konten: jika delimiter ---CONTENT--- hilang, mulai dari tag HTML pertama
+  if (!contentMatch) {
+    const htmlStart = cleaned.search(/<(?:p|h2)[\s>]/i);
+    if (htmlStart !== -1) {
+      contentMatch = ['', cleaned.slice(htmlStart)] as unknown as RegExpMatchArray;
+    }
+  }
 
   // Fallback: jika format baru (dengan CATEGORY) gagal, coba format lama (tanpa CATEGORY)
   const excerptFallback = !excerptMatch ? cleaned.match(/---\s*EXCERPT\s*---\s*([\s\S]*?)---\s*READTIME\s*---/i) : null;
@@ -554,9 +575,10 @@ Judul max 80 karakter. TIDAK harus pakai angka.
       title = titleLine?.replace(/^#+\s*/, '') || '';
     }
     
-    // Content: everything after ---CONTENT--- or after the first <h2>/<p> tag
+    // Content: mulai dari tag HTML PALING AWAL (<p> atau <h2>) — jangan
+    // prioritaskan <h2>, karena itu bisa memotong paragraf pembuka.
     if (!content) {
-      const contentStart = cleaned.indexOf('<h2>') !== -1 ? cleaned.indexOf('<h2>') : cleaned.indexOf('<p>');
+      const contentStart = cleaned.search(/<(?:p|h2)[\s>]/i);
       if (contentStart !== -1) {
         content = cleaned.slice(contentStart);
       }
