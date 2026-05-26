@@ -30,7 +30,9 @@ export const getLandingStats = async (req: Request, res: Response) => {
     `;
     const totalDone = Number(doneResult[0]?.count ?? 0);
 
-    let productivityPct = '100%';
+    // Default '0%' (bukan '100%') saat belum ada pesanan — supaya tenant baru
+    // tidak melihat klaim "100% penyelesaian" padahal belum ada order satupun.
+    let productivityPct = '0%';
     if (totalOrders > 0) {
       const pct = Math.round((totalDone / totalOrders) * 100);
       productivityPct = `${pct}%`;
