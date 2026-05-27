@@ -1,5 +1,5 @@
 // One-off script: update HANYA kolom `features` di subscription_packages
-// supaya konsisten dengan landing page (pricing.f1–f14).
+// supaya konsisten dengan landing page (pricing.f1–f15).
 // Tidak menyentuh kolom lain → aman walau schema lokal/prod beda
 // (mis. `mayar_link` belum ada di prod).
 //
@@ -30,7 +30,7 @@ const PREMIUM_FEATURES = [
   'Konfirmasi & Riwayat Pembayaran',
   'Manajemen Pelanggan & Staf',
   'Sync Mobile Real-time (Offline-First)',
-  'Notifikasi WhatsApp Otomatis',
+  'Notifikasi WhatsApp Otomatis ke Pelanggan',
   'Export Laporan PDF & CSV',
   'Dashboard Analytics',
   'Tracking Pesanan Pelanggan',
@@ -38,6 +38,7 @@ const PREMIUM_FEATURES = [
   'Pencatatan Pengeluaran',
   'Cetak Struk & Nota',
   'Prioritas Support',
+  'Notifikasi Real-time untuk Admin & Karyawan',
 ];
 
 async function main() {

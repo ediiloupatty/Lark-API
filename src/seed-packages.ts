@@ -16,7 +16,7 @@ const pool = new Pool({
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
-// Daftar fitur premium — disinkronkan dengan landing page (pricing.f1–f14)
+// Daftar fitur premium — disinkronkan dengan landing page (pricing.f1–f15)
 // Semua paket berbagi fitur identik; durasi adalah satu-satunya pembeda.
 const PREMIUM_FEATURES = [
   'Manajemen Pesanan Laundry',
@@ -25,7 +25,7 @@ const PREMIUM_FEATURES = [
   'Konfirmasi & Riwayat Pembayaran',
   'Manajemen Pelanggan & Staf',
   'Sync Mobile Real-time (Offline-First)',
-  'Notifikasi WhatsApp Otomatis',
+  'Notifikasi WhatsApp Otomatis ke Pelanggan',
   'Export Laporan PDF & CSV',
   'Dashboard Analytics',
   'Tracking Pesanan Pelanggan',
@@ -33,6 +33,7 @@ const PREMIUM_FEATURES = [
   'Pencatatan Pengeluaran',
   'Cetak Struk & Nota',
   'Prioritas Support',
+  'Notifikasi Real-time untuk Admin & Karyawan',
 ];
 
 async function seedPackages() {
