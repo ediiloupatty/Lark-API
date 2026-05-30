@@ -18,7 +18,16 @@ interface MayarWebhookPayload {
   };
 }
 
+// FIX: plan_code yang mengalir dari createPayment/invoice adalah NAMA enum
+// Prisma (month_1 / months_3 / months_12), bukan bentuk @map DB (1_month dst).
+// Sebelumnya map ini hanya punya key bentuk @map → PLAN_DURATION_DAYS[planCode]
+// selalu undefined → fallback 30 hari untuk SEMUA paket (paket 12 bulan pun cuma
+// dapat 30 hari). Sediakan kedua bentuk agar tahan terhadap data/jalur lama.
 const PLAN_DURATION_DAYS: Record<string, number> = {
+  month_1: 30,
+  months_3: 90,
+  months_12: 365,
+  // Alias bentuk @map DB (jaga-jaga bila ada invoice lama tersimpan demikian)
   '1_month': 30,
   '3_months': 90,
   '12_months': 365,

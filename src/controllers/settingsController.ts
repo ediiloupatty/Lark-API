@@ -104,10 +104,14 @@ export const getSubscriptions = async (req: AuthRequest, res: Response) => {
       where: { is_active: true }
     });
 
+    // FIX: kode plan asli berbasis durasi (month_1/months_3/months_12), bukan
+    // tier basic/premium — sebelumnya plan berbayar jatuh ke fallback 'Paket
+    // Aktif' karena tidak ada di map.
     const planNameMap: Record<string, string> = {
-      'free': 'Paket Gratis',
-      'basic': 'Paket Basic',
-      'premium': 'Paket Premium'
+      free: 'Paket Gratis',
+      month_1: 'Paket 1 Bulan',
+      months_3: 'Paket 3 Bulan',
+      months_12: 'Paket 12 Bulan',
     };
 
     // Hitung subscription status menggunakan shared logic
