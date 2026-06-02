@@ -128,6 +128,44 @@ const VALID_CATEGORIES = [
   'industri',
 ];
 
+// ── Topik Listicle / Evergreen SEO ────────────────────────────────────────────
+// Konten berbasis intent pencarian (listicle, how-to, rekomendasi) — BUKAN rewrite
+// berita. Tiap topik punya angle + kategori. `recommendation: true` menandai topik
+// yang menyebut produk/brand, sehingga prompt menambah guardrail anti-halusinasi.
+interface ListicleTopic {
+  angle: string;
+  category: string;
+  recommendation?: boolean;
+}
+
+const LISTICLE_TOPICS: ListicleTopic[] = [
+  { angle: 'Rekomendasi aplikasi/software kasir (POS) untuk mengelola usaha laundry, lengkap dengan fitur yang wajib ada', category: 'teknologi', recommendation: true },
+  { angle: 'Panduan langkah demi langkah memulai bisnis laundry kiloan dari nol untuk pemula', category: 'panduan-pemula' },
+  { angle: 'Cara menentukan harga laundry per kilo yang tetap untung tanpa bikin pelanggan kabur', category: 'keuangan' },
+  { angle: 'Rekomendasi mesin cuci dan pengering terbaik untuk usaha laundry kiloan beserta pertimbangan memilihnya', category: 'tips-operasional', recommendation: true },
+  { angle: 'Strategi marketing dan promosi laundry biar ramai pelanggan dengan budget kecil', category: 'tips-operasional' },
+  { angle: 'Kesalahan-kesalahan umum pemula yang sering bikin bisnis laundry gagal', category: 'panduan-pemula' },
+  { angle: 'Cara menghitung modal awal dan estimasi balik modal usaha laundry kiloan', category: 'keuangan' },
+  { angle: 'Rekomendasi deterjen, pewangi, dan bahan pendukung laundry yang bagus tapi hemat', category: 'tips-operasional', recommendation: true },
+  { angle: 'Cara merekrut, mengatur, dan menggaji karyawan laundry biar awet dan jujur', category: 'tips-operasional' },
+  { angle: 'Ide layanan tambahan yang bisa menaikkan omzet usaha laundry', category: 'inspirasi' },
+  { angle: 'Checklist peralatan dan perlengkapan wajib sebelum buka usaha laundry', category: 'panduan-pemula' },
+  { angle: 'Cara meningkatkan kecepatan dan kualitas layanan laundry biar pelanggan balik lagi', category: 'tips-operasional' },
+  { angle: 'Tren, peluang, dan tantangan bisnis laundry di Indonesia saat ini', category: 'industri' },
+  { angle: 'Cara membuat pelanggan laundry jadi langganan tetap dan bikin program membership', category: 'tips-operasional' },
+  { angle: 'Cara mencatat keuangan dan arus kas usaha laundry secara sederhana', category: 'keuangan' },
+];
+
+function pickListicleTopic(): ListicleTopic {
+  return LISTICLE_TOPICS[Math.floor(Math.random() * LISTICLE_TOPICS.length)];
+}
+
+// Bangun blok daftar judul yang sudah ada untuk disuntik ke prompt (anti-duplikat).
+function buildExistingTopicsBlock(existingTopics: string[]): string {
+  if (existingTopics.length === 0) return '';
+  return `\nARTIKEL YANG SUDAH ADA DI DATABASE (DILARANG KERAS menulis topik yang sama atau mirip):\n${existingTopics.map((t, i) => `${i + 1}. ${t}`).join('\n')}\nKamu WAJIB membuat topik yang BENAR-BENAR BARU dan BERBEDA dari semua judul di atas. Jangan pakai judul yang mirip, jangan pakai sudut pandang yang sama, dan jangan pakai kata kunci utama yang sama.\n`;
+}
+
 // Fallback: deteksi kategori dari judul/konten jika Qwen tidak assign
 const CATEGORY_KEYWORDS: Record<string, string[]> = {
   'tips-operasional': ['efisiensi', 'efisien', 'optimasi', 'produktivitas', 'operasional', 'hemat', 'energi', 'workflow'],
@@ -416,9 +454,7 @@ async function generateArticle(newsItems: RssItem[], previousTopics: string = ''
     .join('\n\n');
 
   // Format daftar topik yang sudah ada di database untuk dimasukkan ke prompt
-  const existingTopicsBlock = existingTopics.length > 0
-    ? `\nARTIKEL YANG SUDAH ADA DI DATABASE (DILARANG KERAS menulis topik yang sama atau mirip):\n${existingTopics.map((t, i) => `${i + 1}. ${t}`).join('\n')}\nKamu WAJIB membuat topik yang BENAR-BENAR BARU dan BERBEDA dari semua judul di atas. Jangan pakai judul yang mirip, jangan pakai sudut pandang yang sama, dan jangan pakai kata kunci utama yang sama.\n`
-    : '';
+  const existingTopicsBlock = buildExistingTopicsBlock(existingTopics);
 
   const prompt = `Tulis 1 artikel blog untuk Lark Laundry. Pakai berita ini sebagai inspirasi konteks, tapi tulis dengan gayamu sendiri.
 
@@ -517,9 +553,13 @@ Judul max 80 karakter. TIDAK harus pakai angka.
 [Artikel HTML lengkap. WAJIB dimulai dengan <p>, bukan <h2>. JANGAN pakai --- di dalam konten. Minimal 800 kata.]`;
 
   const raw = await callQwen(prompt);
+  return parseAndCleanArticle(raw, newsItems);
+}
 
-  // Log raw response for debugging
-
+// ── Parse & Clean Qwen Output → GeneratedArticle ──────────────────────────────
+// Dipakai mode news (generateArticle) maupun listicle (generateListicleArticle).
+// newsItems hanya untuk section "Sumber Referensi" — kosongkan ([]) untuk listicle.
+function parseAndCleanArticle(raw: string, newsItems: RssItem[] = []): GeneratedArticle {
   // Clean up any markdown wrapper Qwen might add
   let cleaned = raw
     .replace(/^```[\s\S]*?\n/, '')     // Remove opening ```markdown or ```
@@ -687,6 +727,65 @@ Judul max 80 karakter. TIDAK harus pakai angka.
   };
 }
 
+// ── Generate Listicle / Evergreen Article ─────────────────────────────────────
+// Konten search-intent (listicle/how-to/rekomendasi), tanpa sumber berita RSS.
+async function generateListicleArticle(topic: ListicleTopic, previousTopics = '', existingTopics: string[] = []): Promise<GeneratedArticle> {
+  const existingTopicsBlock = buildExistingTopicsBlock(existingTopics);
+
+  const recommendationRule = topic.recommendation
+    ? `\n===== ATURAN AKURASI (TOPIK MENYEBUT PRODUK/BRAND) =====
+- JANGAN mengarang harga spesifik, angka rating, atau spesifikasi teknis yang kamu tidak yakin. Pakai rentang umum atau kalimat kualitatif ("relatif terjangkau", "banyak dipakai laundry rumahan").
+- Sajikan daftar secara NETRAL berbasis kriteria/kegunaan, bukan iklan satu merek.
+- Boleh menyebut jenis/kategori produk yang umum dikenal, tapi fokus ke "apa yang harus diperhatikan saat memilih".
+- Lark Laundry HANYA muncul di bagian penutup sebagai salah satu solusi (soft CTA), JANGAN ditaruh di tengah daftar seolah review berbayar.\n`
+    : `\n- Di bagian penutup, arahkan secara natural ke Lark Laundry sebagai langkah lanjutan (soft CTA, bukan hard-sell).\n`;
+
+  const prompt = `Tulis 1 artikel blog EVERGREEN bergaya LISTICLE/PANDUAN untuk Lark Laundry.
+Ini BUKAN artikel berita. Ini konten yang menjawab pertanyaan yang sering dicari orang di Google.
+
+TOPIK YANG HARUS DITULIS:
+${topic.angle}
+${existingTopicsBlock}
+${previousTopics ? `TOPIK YANG SUDAH ADA (WAJIB BEDA TOTAL):\n${previousTopics}\n` : ''}
+
+===== JENIS & JUDUL =====
+Buat judul bergaya pencarian (search-intent), PILIH salah satu pola:
+- Listicle angka: "7 Aplikasi Kasir Laundry Terbaik buat Usaha Kiloan"
+- How-to: "Cara Menentukan Harga Laundry Per Kilo biar Tetap Untung"
+- Panduan pemula: "Panduan Lengkap Memulai Bisnis Laundry dari Nol"
+- Checklist: "Checklist Peralatan Wajib Sebelum Buka Usaha Laundry"
+Judul WAJIB mengandung keyword utama dan TERASA seperti hasil pencarian Google. Max 70 karakter. JANGAN buka judul dengan kata "Laundry".
+
+===== STRUKTUR (WAJIB) =====
+- <p> Pembuka 1-2 paragraf: konteks kenapa topik ini penting, boleh anekdot singkat.
+- Body berisi DAFTAR/POIN. Tiap poin pakai <h2> sebagai judul poin (mis. "1. ..." atau nama item), diikuti <p> penjelasan 1-2 paragraf. MINIMAL 5 poin.
+- Kalau relevan, pakai <ul>/<li> untuk sub-detail.
+- <h2> Penutup: rangkuman singkat + CTA natural ke Lark Laundry.
+${recommendationRule}
+===== GAYA & ATURAN =====
+- Bahasa Indonesia santai-profesional. Variasi panjang kalimat (kadang pendek, kadang panjang).
+- DILARANG frasa klise AI: "Di era digital", "Dalam konteks ini", "Tak bisa dipungkiri", "Mari kita", "Pada akhirnya", "Secara keseluruhan", dll.
+- Sisipkan keyword "bisnis laundry", "laundry kiloan", "usaha laundry" secara natural 2-4x.
+- HTML only: <h2>, <h3>, <p>, <ul>, <li>, <ol>, <strong>. JANGAN markdown, JANGAN <h1>, DILARANG KERAS pakai --- (tiga strip).
+- Untuk dash pakai "-" biasa, BUKAN em-dash.
+- Minimal 800 kata, idealnya 1000-1200 kata. Pembuka WAJIB <p>, bukan <h2>.
+
+===== FORMAT OUTPUT (HARUS PERSIS) =====
+---TITLE---
+[judul search-intent sesuai aturan, jangan buka dengan "Laundry"]
+---EXCERPT---
+[1-2 kalimat memikat, max 160 karakter, mengandung keyword "laundry"]
+---CATEGORY---
+${topic.category}
+---READTIME---
+[contoh: "8 min"]
+---CONTENT---
+[Artikel HTML lengkap. WAJIB mulai dengan <p>. JANGAN pakai --- di dalam konten. Minimal 800 kata.]`;
+
+  const raw = await callQwen(prompt);
+  return parseAndCleanArticle(raw, []);
+}
+
 // ── Save to Database ──────────────────────────────────────────────────────────
 async function saveArticle(article: GeneratedArticle): Promise<number> {
   const client = await pool.connect();
@@ -709,23 +808,25 @@ export async function generateDailyBlog(): Promise<{ success: boolean; articles?
   try {
     // 0. Fetch existing topics dari database untuk hindari duplikat
     const existingTopics = await fetchExistingTopics();
-    if (existingTopics.length > 0) {
+
+    // Pilih mode konten: 'listicle' (evergreen/SEO) atau 'news' (rewrite RSS).
+    // Rasio diatur via BLOG_LISTICLE_RATIO (default 0.5 = 50/50).
+    const listicleRatio = Number(process.env.BLOG_LISTICLE_RATIO ?? '0.5');
+    let mode: 'listicle' | 'news' = Math.random() < listicleRatio ? 'listicle' : 'news';
+
+    // Mode news butuh RSS. Kalau RSS kosong, fallback ke listicle agar tetap
+    // menghasilkan artikel (bukan gagal total seperti sebelumnya).
+    let relevant: RssItem[] = [];
+    if (mode === 'news') {
+      const allNews = await fetchRssFeeds();
+      relevant = filterRelevantNews(allNews);
+      if (relevant.length === 0) relevant = allNews.slice(0, 10);
+      if (relevant.length === 0) {
+        console.warn('[BlogGen] ⚠️ RSS kosong, fallback ke mode listicle');
+        mode = 'listicle';
+      }
     }
-
-    // 1. Fetch RSS
-    const allNews = await fetchRssFeeds();
-
-    // 2. Filter relevan
-    let relevant = filterRelevantNews(allNews);
-
-    // Kalau tidak ada berita relevan, ambil random berita bisnis
-    if (relevant.length === 0) {
-      relevant = allNews.slice(0, 10);
-    }
-
-    if (relevant.length === 0) {
-      return { success: false, error: 'Tidak ada berita yang bisa diambil dari RSS feeds' };
-    }
+    console.log(`[BlogGen] Mode konten: ${mode}`);
 
     const results = [];
     let previousTopics = "";
@@ -735,7 +836,8 @@ export async function generateDailyBlog(): Promise<{ success: boolean; articles?
     // Generate 1 artikel per run (jalan 2x sehari: pagi 05:00 + sore 17:00 WITA)
     for (let i = 0; i < 1; i++) {
 
-      // Format judul yang di-rotate setiap retry agar AI tidak stuck di pola yang sama
+      // Format judul yang di-rotate tiap attempt agar AI tidak stuck di pola yang sama.
+      // (Khusus mode news; mode listicle judulnya sudah search-intent.)
       const titleFormats = [
         'Format PERTANYAAN - contoh: "Kenapa Tagihan Listrik Laundry Terus Naik?"',
         'Format STUDI KASUS - contoh: "Laundry di Bandung Ini Balik Modal 3 Bulan - Ini Caranya"',
@@ -747,20 +849,24 @@ export async function generateDailyBlog(): Promise<{ success: boolean; articles?
       // Retry loop: jika judul terlalu mirip dengan existing, coba generate ulang (max 5x)
       let article: GeneratedArticle | null = null;
       for (let retry = 0; retry < 5; retry++) {
-        // Re-shuffle chunk berita setiap retry untuk memberi AI konteks yang berbeda
-        const chunk = relevant.sort(() => Math.random() - 0.5).slice(0, Math.min(5, relevant.length));
-
-        // Paksa format judul berbeda setiap retry
-        const forcedFormat = titleFormats[retry % titleFormats.length];
-        const retryContext = retry > 0
-          ? `PENTING: Gunakan ${forcedFormat} untuk judul kali ini. Jangan ulangi pola judul sebelumnya yang ditolak.\n`
-          : '';
-
         try {
-          // 4. Generate via Qwen (dengan daftar topik existing)
-          const candidate = await generateArticle(chunk, retryContext + previousTopics, allKnownTopics);
+          let candidate: GeneratedArticle;
 
-          // 5. Cek similaritas judul dengan semua topik yang sudah ada
+          if (mode === 'listicle') {
+            // Tiap attempt pakai topik berbeda agar tidak stuck kalau judul ditolak.
+            const topic = pickListicleTopic();
+            candidate = await generateListicleArticle(topic, previousTopics, allKnownTopics);
+          } else {
+            // Re-shuffle chunk berita tiap attempt untuk konteks berbeda
+            const chunk = relevant.sort(() => Math.random() - 0.5).slice(0, Math.min(5, relevant.length));
+            // Paksa format judul berbeda SEJAK attempt pertama agar tidak selalu jatuh
+            // ke pola pembuka "Laundry ...".
+            const forcedFormat = titleFormats[retry % titleFormats.length];
+            const retryContext = `PENTING: Gunakan ${forcedFormat} untuk judul. JANGAN buka judul dengan kata "Laundry". Jangan ulangi pola judul yang sudah ada.\n`;
+            candidate = await generateArticle(chunk, retryContext + previousTopics, allKnownTopics);
+          }
+
+          // Cek similaritas judul dengan semua topik yang sudah ada
           const similarityCheck = isTitleTooSimilar(candidate.title, allKnownTopics);
           if (similarityCheck.similar) {
             console.warn(`[BlogGen] 🔄 Judul "${candidate.title}" terlalu mirip dengan "${similarityCheck.matchedTitle}". Retry ${retry + 1}/5...`);
