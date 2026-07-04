@@ -14,8 +14,11 @@ import {
 import { sendPasswordResetEmail } from '../utils/mailer';
 
 // Inisialisasi Google OAuth2 Client — digunakan untuk verifikasi ID Token
+// GOOGLE_CLIENT_ID bisa berisi beberapa client ID dipisah koma (web + mobile),
+// karena token dari web & app mobile punya audience (aud) yang berbeda.
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
-const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
+const GOOGLE_CLIENT_IDS = GOOGLE_CLIENT_ID.split(',').map((s) => s.trim()).filter(Boolean);
+const googleClient = new OAuth2Client(GOOGLE_CLIENT_IDS[0]);
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 hari
@@ -633,7 +636,7 @@ export const googleLogin = async (req: Request, res: Response) => {
       try {
         const ticket = await googleClient.verifyIdToken({
           idToken: credential,
-          audience: GOOGLE_CLIENT_ID,
+          audience: GOOGLE_CLIENT_IDS,
         });
         const raw = ticket.getPayload();
         if (raw && raw.sub && raw.email) {
