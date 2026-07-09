@@ -5,7 +5,7 @@ import {
   // Blog CMS
   listBlogArticlesAdmin, createBlogArticle, updateBlogArticle, deleteBlogArticle,
   // User Management
-  listAllUsers, toggleUserStatus, resetUserPassword,
+  listAllUsers, toggleUserStatus, resetUserPassword, getUsersTreeSummary, getTenantMembers,
   // Tenant Detail
   getTenantDetail,
   // Maintenance
@@ -44,11 +44,13 @@ router.delete('/blogs/:id', deleteBlogArticle);
 
 // ── User Management ──
 router.get('/users', listAllUsers);
+router.get('/users/tree-summary', getUsersTreeSummary);
 router.post('/users/:id/toggle-status', toggleUserStatus);
 router.post('/users/:id/reset-password', resetUserPassword);
 
 // ── Tenant Detail ──
 router.get('/tenants/:id/detail', getTenantDetail);
+router.get('/tenants/:id/members', getTenantMembers);
 
 // ── Maintenance Mode ──
 router.get('/maintenance', getMaintenanceStatus);

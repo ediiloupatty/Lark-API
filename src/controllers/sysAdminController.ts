@@ -948,6 +948,213 @@ export const listAllUsers = async (req: AuthRequest, res: Response) => {
   }
 };
 
+/**
+ * GET /sys-admin/users/tree-summary — Ringkasan pohon user, dipaginasi per-tenant.
+ * Dipakai oleh visualisasi pohon di tab Users: hanya mengirim super admin + tenant
+ * (owner + jumlah anggota), TIDAK mengirim seluruh staff/pelanggan sekaligus.
+ * Ini yang membuat pohon tetap scalable walau tenant/user jumlahnya jutaan —
+ * staff/pelanggan per tenant baru di-fetch saat node tenant di-expand (lihat getTenantMembers).
+ */
+export const getUsersTreeSummary = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 30));
+    const skip = (page - 1) * limit;
+    const search = (req.query.search as string || '').trim();
+    const roleFilter = (req.query.role as string || '').trim();
+    const validRoles = ['super_admin', 'admin', 'owner', 'karyawan', 'pelanggan'];
+    const roleFilterValid = validRoles.includes(roleFilter) ? roleFilter : '';
+
+    const superAdmins = roleFilterValid && roleFilterValid !== 'super_admin' ? [] : await db.users.findMany({
+      where: { role: 'super_admin', deleted_at: null },
+      orderBy: { created_at: 'asc' },
+      select: { id: true, username: true, nama: true, email: true, role: true, is_active: true, auth_provider: true },
+    });
+
+    // Filter role 'super_admin' tidak punya tenant — cukup tampilkan daftar super admin saja.
+    if (roleFilterValid === 'super_admin') {
+      return res.json({
+        success: true,
+        data: { super_admins: superAdmins, tenants: [], total: 0, total_users: superAdmins.length, page: 1, total_pages: 0 },
+      });
+    }
+
+    // Preview staff/pelanggan yang cocok dengan pencarian, dikirim langsung sebagai
+    // `matched_members` supaya frontend bisa auto-expand tenant tsb tanpa fetch tambahan.
+    const matchedMembersByTenant = new Map<number, any[]>();
+    let tenantWhere: any = {};
+
+    // Role filter untuk staff/pelanggan (bukan owner) butuh cari tenant mana saja yang
+    // punya anggota berperan itu — jalur yang sama dengan pencarian teks.
+    const memberRoleFilter = roleFilterValid && roleFilterValid !== 'owner' ? roleFilterValid : '';
+
+    if (search || memberRoleFilter) {
+      const matchingUsers = await db.users.findMany({
+        where: {
+          deleted_at: null,
+          role: memberRoleFilter ? (memberRoleFilter as any) : { not: 'super_admin' },
+          tenant_id: { not: null },
+          ...(search ? {
+            OR: [
+              { nama: { contains: search, mode: 'insensitive' } },
+              { username: { contains: search, mode: 'insensitive' } },
+              { email: { contains: search, mode: 'insensitive' } },
+            ],
+          } : {}),
+        },
+        select: { id: true, tenant_id: true, username: true, nama: true, email: true, role: true, is_active: true, auth_provider: true },
+        take: 500,
+      });
+
+      const tenantIdsMatched = new Set<number>();
+      matchingUsers.forEach(u => {
+        if (u.tenant_id == null) return;
+        tenantIdsMatched.add(u.tenant_id);
+        if (u.role !== 'owner') {
+          if (!matchedMembersByTenant.has(u.tenant_id)) matchedMembersByTenant.set(u.tenant_id, []);
+          matchedMembersByTenant.get(u.tenant_id)!.push(u);
+        }
+      });
+
+      // Tenant yang namanya cocok tapi belum tentu punya anggota dgn role yg difilter —
+      // hanya relevan kalau tidak sedang memfilter role staff tertentu.
+      if (search && !memberRoleFilter) {
+        const tenantsByName = await db.tenants.findMany({
+          where: { name: { contains: search, mode: 'insensitive' } },
+          select: { id: true },
+        });
+        tenantsByName.forEach(t => tenantIdsMatched.add(t.id));
+      }
+
+      tenantWhere = { id: { in: Array.from(tenantIdsMatched) } };
+    }
+
+    // Total user individual yang cocok filter saat ini (independen dari paginasi tenant) —
+    // ini yang dipakai header "Semua User (N)"; cukup murah (COUNT terindeks) walau datanya jutaan baris.
+    const totalUsersWhere: any = { deleted_at: null };
+    if (roleFilterValid) totalUsersWhere.role = roleFilterValid;
+    if (search) {
+      totalUsersWhere.OR = [
+        { nama: { contains: search, mode: 'insensitive' } },
+        { username: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [tenants, total, totalUsers] = await Promise.all([
+      db.tenants.findMany({
+        where: tenantWhere,
+        take: limit,
+        skip,
+        orderBy: { created_at: 'desc' },
+        select: { id: true, name: true, is_active: true },
+      }),
+      db.tenants.count({ where: tenantWhere }),
+      db.users.count({ where: totalUsersWhere }),
+    ]);
+
+    const tenantIds = tenants.map(t => t.id);
+    const [owners, memberCounts] = tenantIds.length > 0 ? await Promise.all([
+      db.users.findMany({
+        where: { tenant_id: { in: tenantIds }, role: 'owner', deleted_at: null },
+        select: { id: true, tenant_id: true, username: true, nama: true, email: true, role: true, is_active: true, auth_provider: true },
+      }),
+      db.users.groupBy({
+        by: ['tenant_id'],
+        where: { tenant_id: { in: tenantIds }, role: { in: ['admin', 'karyawan', 'pelanggan'] }, deleted_at: null },
+        _count: { id: true },
+      }),
+    ]) : [[], []];
+
+    const ownerByTenant = new Map(owners.map((o: any) => [o.tenant_id, o]));
+    const memberCountByTenant = new Map(memberCounts.map((m: any) => [m.tenant_id, m._count.id]));
+
+    return res.json({
+      success: true,
+      data: {
+        super_admins: superAdmins,
+        tenants: tenants.map(t => ({
+          id: t.id,
+          name: t.name,
+          is_active: t.is_active,
+          owner: ownerByTenant.get(t.id) || null,
+          member_count: memberCountByTenant.get(t.id) || 0,
+          matched_members: matchedMembersByTenant.get(t.id) || [],
+        })),
+        total,
+        total_users: totalUsers,
+        page,
+        total_pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error: any) {
+    console.error('[SysAdmin] getUsersTreeSummary error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal mengambil ringkasan pohon user.' });
+  }
+};
+
+/**
+ * GET /sys-admin/tenants/:id/members — Staff & pelanggan satu tenant, dipaginasi.
+ * Dipanggil hanya saat node tenant di-expand di pohon user (lazy load).
+ */
+export const getTenantMembers = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Akses ditolak.' });
+    }
+
+    const tenantId = parseInt(req.params.id as string);
+    if (isNaN(tenantId)) {
+      return res.status(400).json({ success: false, error: 'ID Tenant tidak valid.' });
+    }
+
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 30));
+    const skip = (page - 1) * limit;
+    const search = (req.query.search as string || '').trim();
+    const roleFilter = (req.query.role as string || '').trim();
+    const memberRoles = ['admin', 'karyawan', 'pelanggan'];
+    const roleFilterValid = memberRoles.includes(roleFilter) ? roleFilter : '';
+
+    const whereClause: any = {
+      tenant_id: tenantId,
+      role: roleFilterValid ? roleFilterValid : { in: memberRoles },
+      deleted_at: null,
+    };
+    if (search) {
+      whereClause.OR = [
+        { nama: { contains: search, mode: 'insensitive' } },
+        { username: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [members, total] = await Promise.all([
+      db.users.findMany({
+        where: whereClause,
+        take: limit,
+        skip,
+        // 'admin' < 'karyawan' < 'pelanggan' secara alfabet — kebetulan sama dengan urutan peran yang diinginkan
+        orderBy: [{ role: 'asc' }, { created_at: 'desc' }],
+        select: { id: true, username: true, nama: true, email: true, role: true, is_active: true, auth_provider: true },
+      }),
+      db.users.count({ where: whereClause }),
+    ]);
+
+    return res.json({
+      success: true,
+      data: { members, total, page, total_pages: Math.ceil(total / limit) },
+    });
+  } catch (error: any) {
+    console.error('[SysAdmin] getTenantMembers error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal mengambil anggota tenant.' });
+  }
+};
+
 /** POST /sys-admin/users/:id/toggle-status — Activate/deactivate a user */
 export const toggleUserStatus = async (req: AuthRequest, res: Response) => {
   try {
