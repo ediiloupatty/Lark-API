@@ -190,6 +190,13 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
     const totCustRes = await db.$queryRawUnsafe<any[]>(`SELECT COUNT(*) as count FROM customers WHERE tenant_id = $1`, tenantId);
     const total_customers = Number(totCustRes[0]?.count || 0);
 
+    // Dipakai web untuk kartu misi setup (parity dengan wizard onboarding mobile)
+    const staffCountRes = await db.$queryRawUnsafe<any[]>(
+      `SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND role = 'karyawan' AND deleted_at IS NULL`,
+      tenantId
+    );
+    const staff_count = Number(staffCountRes[0]?.count || 0);
+
     const oc7 = buildOutletCond(2);
     const totOrdRes = await db.$queryRawUnsafe<any[]>(`SELECT COUNT(*) as count FROM orders WHERE tenant_id = $1 ${oc7.clause}`, tenantId, ...oc7.params);
     const total_orders_count = Number(totOrdRes[0]?.count || 0);
@@ -334,7 +341,8 @@ export const getDashboard = async (req: AuthRequest, res: Response) => {
           total_revenue: total_revenue,
           pay_pending: pay_pending_count,
           status_counts: status_counts,
-          role_highlights: role_stats
+          role_highlights: role_stats,
+          staff_count: staff_count
         },
         chart_data: chart_data,
         recent_orders: formatted_orders,

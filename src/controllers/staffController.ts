@@ -227,7 +227,7 @@ export const getGlobalPermissions = async (req: AuthRequest, res: Response) => {
       tenantId
     );
 
-    let perms = { manage_orders: false, confirm_payments: false, view_reports: false, manage_expenses: false };
+    let perms = { manage_orders: false, confirm_payments: false, view_reports: false, manage_expenses: false, view_dashboard_stats: false, manage_services: false, manage_customers: false, manage_receipt_settings: false };
     if (rows.length > 0 && rows[0].setting_value) {
       try {
         const parsed = typeof rows[0].setting_value === 'string' ? JSON.parse(rows[0].setting_value) : rows[0].setting_value;
@@ -256,7 +256,7 @@ export const updateGlobalPermissions = async (req: AuthRequest, res: Response) =
     let perms = req.body.permissions;
     if (!perms) return res.status(400).json({ status: 'error', message: 'Permissions wajib diisi.' });
 
-    const defaultPerms = { manage_orders: false, confirm_payments: false, view_reports: false, manage_expenses: false };
+    const defaultPerms = { manage_orders: false, confirm_payments: false, view_reports: false, manage_expenses: false, view_dashboard_stats: false, manage_services: false, manage_customers: false, manage_receipt_settings: false };
     perms = { ...defaultPerms, ...perms };
 
     // Update or Insert into tenant_settings
@@ -306,7 +306,7 @@ export const updateStaffPermissions = async (req: AuthRequest, res: Response) =>
     const { staff_id, permissions } = req.body;
     if (!staff_id || !permissions) return res.status(400).json({ status: 'error', message: 'ID Staf dan permissions wajib diisi.' });
 
-    const defaultPerms = { manage_orders: false, confirm_payments: false, view_reports: false, manage_expenses: false };
+    const defaultPerms = { manage_orders: false, confirm_payments: false, view_reports: false, manage_expenses: false, view_dashboard_stats: false, manage_services: false, manage_customers: false, manage_receipt_settings: false };
     const perms = { ...defaultPerms, ...permissions };
 
     await db.$queryRawUnsafe(
