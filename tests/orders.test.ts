@@ -185,6 +185,85 @@ describe('Order Controller', () => {
     expect(res.status).toBe(200); // Should succeed with fallback to 'cash'
   });
 
+  // ── Optimistic locking (offline sync) ────────────────────────────────────
+  // Mobile mengirim base_version = server_version yang dilihat saat perubahan
+  // dibuat offline. Server menolak 409 bila sudah lebih baru, agar perubahan
+  // dari perangkat lain tidak tertimpa diam-diam (last-write-wins).
+
+  /** Buat order sekali pakai, kembalikan id + server_version terkini. */
+  const freshOrder = async () => {
+    const created = await request(app)
+      .post('/api/v1/sync/create-order')
+      .set(authHeaders(ctx.adminToken))
+      .send({ customer_id: ctx.customerId, items: [{ service_id: ctx.serviceId, berat: 1 }], status_bayar: 'nanti' });
+
+    const orderId = created.body.data.order_id;
+    const detail = await request(app)
+      .get(`/api/v1/sync/orders?id=${orderId}`)
+      .set(authHeaders(ctx.adminToken));
+
+    return { orderId, serverVersion: detail.body.data.server_version };
+  };
+
+  // ⚠️ Konflik: base_version basi ditolak
+  it('POST /sync/update-order-status — base_version basi ditolak 409', async () => {
+    const { orderId, serverVersion } = await freshOrder();
+
+    const res = await request(app)
+      .post('/api/v1/sync/update-order-status')
+      .set(authHeaders(ctx.adminToken))
+      .send({ order_id: orderId, status: 'diproses', base_version: Number(serverVersion) - 1000 });
+
+    expect(res.status).toBe(409);
+    expect(res.body.status).toBe('error');
+    // Mobile butuh payload server untuk opsi "pakai versi server" di Sync Center
+    expect(res.body.data).toBeTruthy();
+    expect(res.body.data.id).toBe(orderId);
+    expect(res.body.data.server_version).toBeTruthy();
+  });
+
+  // ✅ Normal: base_version cocok tetap lolos
+  it('POST /sync/update-order-status — base_version cocok diterima', async () => {
+    const { orderId, serverVersion } = await freshOrder();
+
+    const res = await request(app)
+      .post('/api/v1/sync/update-order-status')
+      .set(authHeaders(ctx.adminToken))
+      .send({ order_id: orderId, status: 'diproses', base_version: serverVersion });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('success');
+  });
+
+  // ⚠️ Konflik: transisi tidak valid dijawab 409, bukan 400.
+  // Alasan: hampir selalu berarti server sudah maju melewati status yang
+  // dilihat klien. Dengan 400 mobile me-retry 10x sampai job mati permanen.
+  it('POST /sync/update-order-status — transisi tidak valid ditolak 409', async () => {
+    const { orderId } = await freshOrder();
+
+    const res = await request(app)
+      .post('/api/v1/sync/update-order-status')
+      .set(authHeaders(ctx.adminToken))
+      .send({ order_id: orderId, status: 'selesai' }); // lompat dari status awal
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toContain('Tidak bisa mengubah status');
+    expect(res.body.data.id).toBe(orderId);
+  });
+
+  // ⚠️ Konflik: pembayaran dengan base_version basi ditolak
+  it('POST /sync/pay-order — base_version basi ditolak 409', async () => {
+    const { orderId, serverVersion } = await freshOrder();
+
+    const res = await request(app)
+      .post('/api/v1/sync/pay-order')
+      .set(authHeaders(ctx.adminToken))
+      .send({ order_id: orderId, metode_bayar: 'cash', base_version: Number(serverVersion) - 1000 });
+
+    expect(res.status).toBe(409);
+    expect(res.body.data.id).toBe(orderId);
+  });
+
   // 🔒 Security: Delete order
   it('POST /sync/delete-order — admin soft-delete berhasil', async () => {
     // Create a disposable order

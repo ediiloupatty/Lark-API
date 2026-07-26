@@ -115,6 +115,62 @@ describe('Customer Controller', () => {
     expect(res.status).toBe(200);
   });
 
+  // ── Optimistic locking (offline sync) ────────────────────────────────────
+
+  /** Buat pelanggan sekali pakai, kembalikan id + server_version terkini. */
+  const freshCustomer = async (label: string) => {
+    const addRes = await request(app)
+      .post('/api/v1/sync/add-customer')
+      .set(authHeaders(ctx.adminToken))
+      .send({ nama: `${TEST_PREFIX}${label}`, no_hp: `085${Date.now().toString().slice(-9)}` });
+
+    return {
+      customerId: addRes.body.data?.id,
+      serverVersion: addRes.body.data?.server_version,
+    };
+  };
+
+  // ⚠️ Konflik: base_version basi ditolak
+  it('PUT /sync/update-customer — base_version basi ditolak 409', async () => {
+    const { customerId, serverVersion } = await freshCustomer('Stale Update');
+
+    const res = await request(app)
+      .put('/api/v1/sync/update-customer')
+      .set(authHeaders(ctx.adminToken))
+      .send({ id: customerId, nama: `${TEST_PREFIX}Overwritten`, base_version: Number(serverVersion) - 1000 });
+
+    expect(res.status).toBe(409);
+    expect(res.body.status).toBe('error');
+    expect(res.body.data.id).toBe(customerId);
+    expect(res.body.data.server_version).toBeTruthy();
+  });
+
+  // ✅ Normal: base_version cocok tetap lolos
+  it('PUT /sync/update-customer — base_version cocok diterima', async () => {
+    const { customerId, serverVersion } = await freshCustomer('Fresh Update');
+
+    const res = await request(app)
+      .put('/api/v1/sync/update-customer')
+      .set(authHeaders(ctx.adminToken))
+      .send({ id: customerId, nama: `${TEST_PREFIX}Renamed`, base_version: serverVersion });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('success');
+  });
+
+  // ⚠️ Konflik: hapus dengan base_version basi ditolak
+  it('POST /sync/delete-customer — base_version basi ditolak 409', async () => {
+    const { customerId, serverVersion } = await freshCustomer('Stale Delete');
+
+    const res = await request(app)
+      .post('/api/v1/sync/delete-customer')
+      .set(authHeaders(ctx.adminToken))
+      .send({ id: customerId, base_version: Number(serverVersion) - 1000 });
+
+    expect(res.status).toBe(409);
+    expect(res.body.data.id).toBe(customerId);
+  });
+
   // 🔒 Security: Karyawan tidak bisa hapus
   it('POST /sync/delete-customer — karyawan ditolak', async () => {
     const res = await request(app)

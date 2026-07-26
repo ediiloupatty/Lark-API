@@ -62,6 +62,36 @@ export const syncFetchOrderPayload = async (db: PrismaClient, tenantId: number, 
   return order;
 };
 
+/**
+ * Optimistic locking guard untuk endpoint yang dipanggil offline sync.
+ *
+ * Mobile mengirim `base_version` = server_version yang terlihat saat perubahan
+ * dibuat offline (lihat OfflineSyncService._syncUpdateOrderStatus / _syncPayOrder
+ * / _syncUpdateCustomer / _syncDeleteCustomer). Bila server sudah lebih baru,
+ * perubahan itu dibuat di atas data basi — tolak dengan 409 agar mobile
+ * menandai baris sebagai konflik (_SyncConflictException) dan user memilih
+ * versi lokal atau versi server lewat Sync Center.
+ *
+ * Guard bersifat opt-in: klien yang tidak mengirim base_version (web dashboard,
+ * mobile versi lama) tetap lolos, jadi tidak ada kompatibilitas yang putus.
+ */
+export const syncIsStaleWrite = (baseVersion: unknown, currentVersion: unknown): boolean => {
+  if (baseVersion === undefined || baseVersion === null) return false;
+
+  const base = String(baseVersion).trim();
+  if (base === '' || base === '0' || base === 'null' || base === 'undefined') return false;
+
+  const current = String(currentVersion ?? '').trim();
+  // Baris tanpa server_version (kolom NULL / belum pernah di-bump) tidak bisa
+  // dibandingkan — biarkan lolos daripada memblokir tulisan secara permanen.
+  if (current === '' || current === '0' || current === 'null') return false;
+
+  const baseNum = Number(base);
+  const currentNum = Number(current);
+  if (Number.isFinite(baseNum) && Number.isFinite(currentNum)) return baseNum !== currentNum;
+  return base !== current;
+};
+
 export const syncCurrentServerVersion = async (db: PrismaClient, tenantId: number): Promise<number> => {
   const candidates: number[] = [0];
   const tables = ['customers', 'orders', 'services', 'paket_laundry'];

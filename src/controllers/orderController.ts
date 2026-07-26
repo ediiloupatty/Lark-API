@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { sendPushToAdmins, saveNotification } from '../services/firebaseService';
 import { sendWhatsApp, buildNewOrderMessage, buildStatusUpdateMessage, WhatsAppService } from '../services/whatsappService';
 import { uploadToR2, isR2Configured } from '../services/r2Service';
+import { syncIsStaleWrite, syncFetchOrderPayload } from '../services/SyncService';
 
 function generateTrackingCode() {
   return 'ORD-' + crypto.randomBytes(3).toString('hex').toUpperCase();
@@ -733,13 +734,13 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
     const tenantId = req.user?.tenant_id;
     // Mobile sends 'order_id', web dashboard may send 'id' — accept both
     const id = req.body.order_id ?? req.body.id;
-    const { status } = req.body;
+    const { status, base_version } = req.body;
 
     if (!id || !status) return res.status(400).json({ status: 'error', message: 'ID pesanan dan status wajib diisi.' });
 
     // ── Fetch current order state ──
     const [currentOrder] = await db.$queryRawUnsafe<any[]>(
-      `SELECT o.id, o.status as current_status, p.status_pembayaran
+      `SELECT o.id, o.status as current_status, o.server_version, p.status_pembayaran
        FROM orders o
        LEFT JOIN payments p ON p.order_id = o.id AND p.tenant_id = o.tenant_id
        WHERE o.id = $1 AND o.tenant_id = $2
@@ -749,13 +750,29 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
     );
     if (!currentOrder) return res.status(404).json({ status: 'error', message: 'Pesanan tidak ditemukan.' });
 
+    // ── Optimistic locking: tolak tulisan berdasarkan versi basi ──
+    // Tanpa ini, perubahan status yang dibuat offline menimpa perubahan yang
+    // sudah terjadi di server (last-write-wins diam-diam).
+    if (syncIsStaleWrite(base_version, currentOrder.server_version)) {
+      return res.status(409).json({
+        status: 'error',
+        message: 'Pesanan sudah diubah dari perangkat lain.',
+        data: await syncFetchOrderPayload(db, tenantId!, parseInt(String(id))),
+      });
+    }
+
     // ── BUG-8 FIX: Validate status transition ──
+    // Dijawab 409, bukan 400: transisi tak valid hampir selalu berarti server
+    // sudah maju melewati status yang dilihat klien — itu konflik, bukan
+    // request cacat. Dengan 409 mobile menaruhnya di Sync Center untuk
+    // diresolusi, bukan me-retry 10x sampai job mati permanen.
     const currentStatus = currentOrder.current_status;
     const allowedNext = VALID_TRANSITIONS[currentStatus] || [];
     if (!allowedNext.includes(status)) {
-      return res.status(400).json({
+      return res.status(409).json({
         status: 'error',
         message: `Tidak bisa mengubah status dari "${currentStatus}" ke "${status}". Transisi yang valid: ${allowedNext.join(', ') || 'tidak ada (status final)'}.`,
+        data: await syncFetchOrderPayload(db, tenantId!, parseInt(String(id))),
       });
     }
 
@@ -843,7 +860,7 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
 export const payOrder = async (req: AuthRequest, res: Response) => {
   try {
     const tenantId = req.user?.tenant_id;
-    const { order_id, jumlah_bayar } = req.body;
+    const { order_id, jumlah_bayar, base_version } = req.body;
 
     // Accept both field name variants the mobile app might send
     // Fix BC-3: Validasi enum agar tidak inject nilai sembarang ke DB
@@ -856,10 +873,21 @@ export const payOrder = async (req: AuthRequest, res: Response) => {
     }
 
     const orderRes = await db.$queryRawUnsafe<any[]>(
-      `SELECT id, total_harga, tracking_code FROM orders WHERE id = $1 AND tenant_id = $2`, parseInt(order_id), tenantId
+      `SELECT id, total_harga, tracking_code, server_version FROM orders WHERE id = $1 AND tenant_id = $2`, parseInt(order_id), tenantId
     );
     if (orderRes.length === 0) {
       return res.status(404).json({ status: 'error', message: 'Order tidak ditemukan.' });
+    }
+
+    // ── Optimistic locking ──
+    // Pembayaran paling rawan: dua device yang sync berurutan bisa saling
+    // menimpa metode_pembayaran / jumlah_bayar tanpa jejak.
+    if (syncIsStaleWrite(base_version, orderRes[0].server_version)) {
+      return res.status(409).json({
+        status: 'error',
+        message: 'Data pembayaran sudah diubah dari perangkat lain.',
+        data: await syncFetchOrderPayload(db, tenantId!, parseInt(order_id)),
+      });
     }
 
     // jumlah_bayar is optional — fall back to order total if not provided by mobile

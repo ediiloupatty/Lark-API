@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { db } from '../config/db';
 import { AuthRequest } from '../middlewares/authMiddleware';
+import { syncIsStaleWrite } from '../services/SyncService';
 
 // GET /api/v1/sync/customers
 export const getCustomers = async (req: AuthRequest, res: Response) => {
@@ -92,9 +93,26 @@ export const updateCustomer = async (req: AuthRequest, res: Response) => {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) return res.status(403).json({ status: 'error', message: 'Tenant required.' });
 
-    const { id, nama, no_hp, alamat, email, client_id } = req.body;
+    const { id, nama, no_hp, alamat, email, client_id, base_version } = req.body;
 
     if (!id && !client_id) return res.status(400).json({ status: 'error', message: 'ID pelanggan diperlukan.' });
+
+    // ── Optimistic locking: tolak tulisan berdasarkan versi basi ──
+    // Hanya dijalankan bila klien mengirim base_version (offline sync mobile).
+    if (base_version !== undefined && base_version !== null) {
+      const current = await db.$queryRawUnsafe<any[]>(
+        `SELECT id, client_id, nama, no_hp, alamat, email, server_version, updated_at
+         FROM customers WHERE tenant_id = $1 AND (id = $2 OR client_id = $3) AND deleted_at IS NULL`,
+        tenantId, id || -1, client_id || 'UNKNOWN'
+      );
+      if (current.length > 0 && syncIsStaleWrite(base_version, current[0].server_version)) {
+        return res.status(409).json({
+          status: 'error',
+          message: 'Data pelanggan sudah diubah dari perangkat lain.',
+          data: current[0],
+        });
+      }
+    }
 
     // Pengecekan constraint unik untuk no_hp jika diubah
     if (no_hp) {
@@ -152,7 +170,25 @@ export const deleteCustomer = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ status: 'error', message: 'Akses ditolak. Hanya admin yang bisa menghapus pelanggan.' });
     }
 
-    const { id, client_id } = req.body;
+    const { id, client_id, base_version } = req.body;
+
+    // ── Optimistic locking ──
+    // Hapus berdasarkan data basi berarti pelanggan sudah diubah/dihapus pihak
+    // lain sejak snapshot lokal diambil — konfirmasikan dulu ke user.
+    if (base_version !== undefined && base_version !== null) {
+      const current = await db.$queryRawUnsafe<any[]>(
+        `SELECT id, client_id, nama, no_hp, alamat, email, server_version, updated_at
+         FROM customers WHERE tenant_id = $1 AND (id = $2 OR client_id = $3) AND deleted_at IS NULL`,
+        tenantId, id || -1, client_id || 'UNKNOWN'
+      );
+      if (current.length > 0 && syncIsStaleWrite(base_version, current[0].server_version)) {
+        return res.status(409).json({
+          status: 'error',
+          message: 'Data pelanggan sudah diubah dari perangkat lain.',
+          data: current[0],
+        });
+      }
+    }
 
     // Soft delete
     const deleted = await db.$queryRawUnsafe<any[]>(
