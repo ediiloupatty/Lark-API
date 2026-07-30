@@ -183,6 +183,21 @@ app.get('/api/v1/health', async (req: Request, res: Response) => {
         latency_ms: dbHealth.latencyMs,
         ...(dbHealth.error ? { message: dbHealth.error } : {}),
       },
+      // Dipakai AuthService.checkAppVersion() di aplikasi mobile:
+      //  - min_version    : di bawah ini app diblokir, user wajib update
+      //  - latest_version : di bawah ini app hanya menampilkan notice halus
+      //  - update_url     : tujuan tombol update
+      // Blok ini sebelumnya tidak pernah dikirim, sehingga pembacaan
+      // checks.app_versioning di mobile selalu melempar dan tertelan
+      // try/catch — mekanisme force update efektif mati. Ketiganya bisa
+      // ditimpa lewat env tanpa deploy ulang kode.
+      app_versioning: {
+        min_version: process.env.APP_MIN_VERSION || '1.0.0',
+        latest_version: process.env.APP_LATEST_VERSION || '1.0.2',
+        update_url:
+          process.env.APP_UPDATE_URL ||
+          'https://play.google.com/store/apps/details?id=com.larklaundry.mobile',
+      },
     },
   });
 });
