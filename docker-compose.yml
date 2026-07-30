@@ -42,7 +42,12 @@ services:
     networks:
       - lark_internal
     ports:
-      - "80:3000"
+      # Bind ke loopback saja. Sebelumnya "80:3000" membuka port 80 ke
+      # 0.0.0.0, sehingga http://<IP-VPS>/api/v1/... bisa diakses langsung
+      # tanpa melewati Nginx maupun Cloudflare — termasuk melewati rate
+      # limiting, WAF, dan proteksi bot. Nginx tetap berfungsi karena
+      # proxy_pass-nya menuju 127.0.0.1:80.
+      - "127.0.0.1:80:3000"
     healthcheck:
       # Endpoint mengembalikan "healthy" (200) atau "degraded" (503) — lihat
       # src/app.ts. Pola lama mencari "ok", string yang tidak pernah dikirim,
