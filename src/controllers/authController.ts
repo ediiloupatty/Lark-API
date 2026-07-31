@@ -486,14 +486,21 @@ export const forgotPassword = async (req: Request, res: Response) => {
       },
     });
 
-    // SECURITY FIX: Jangan membedakan response untuk email yang ada vs tidak ada.
-    // Respons identik mencegah email enumeration attack (OWASP A01:2021).
+    // Email harus terdaftar sebagai akun admin aktif. Diminta eksplisit oleh
+    // pemilik produk: user bingung karena dulu respons selalu "terkirim"
+    // walau emailnya belum pernah didaftarkan.
+    // Catatan keamanan: respons berbeda ini membuka email enumeration
+    // (OWASP A01:2021) — mitigasinya ada di loginRateLimiter pada route
+    // (5 percobaan per IP → lockout 15 menit) + delay acak di bawah.
     if (!user) {
-      // Artificial delay agar response time tidak berbeda signifikan (mitigasi timing attack)
+      // Hitung sebagai percobaan gagal → 5x per IP kena lockout 15 menit,
+      // supaya endpoint ini tidak bisa dipakai scan email massal.
+      recordFailedLogin(req.ip || req.socket?.remoteAddress || '0.0.0.0');
+      // Artificial delay agar response time tidak jadi kanal bocor tambahan
       await new Promise(r => setTimeout(r, 400 + Math.random() * 300));
-      return res.json({
-        status: 'success',
-        message: 'Jika email terdaftar, link reset password akan dikirim ke inbox Anda. Periksa juga folder spam.',
+      return res.status(404).json({
+        status: 'error',
+        message: 'Email tidak terdaftar sebagai akun admin. Silakan daftar terlebih dahulu atau periksa kembali email Anda.',
       });
     }
 
