@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { db } from '../config/db';
+import { AUTH_COOKIE_MAX_AGE, authCookieOptions } from '../config/cookies';
 
 export interface AuthRequest extends Request {
   user?: {
@@ -14,8 +15,7 @@ export interface AuthRequest extends Request {
   };
 }
 
-const IS_PROD = process.env.NODE_ENV === 'production';
-const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 hari
+const COOKIE_MAX_AGE = AUTH_COOKIE_MAX_AGE; // 7 hari
 const JWT_EXPIRY = '7d';
 // Sliding session: renew token jika sudah lewat 50% dari lifetime (3.5 hari)
 const RENEWAL_THRESHOLD_SECONDS = 3.5 * 24 * 60 * 60; // 3.5 hari
@@ -125,11 +125,8 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
         );
 
         res.cookie('lark_token', freshToken, {
-          httpOnly: true,
-          secure: IS_PROD,
-          sameSite: IS_PROD ? 'none' : 'lax',
+          ...authCookieOptions,
           maxAge: COOKIE_MAX_AGE,
-          path: '/',
         });
       } catch {
         // Token renewal gagal — biarkan request lanjut dengan token lama

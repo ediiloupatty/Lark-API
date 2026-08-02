@@ -12,6 +12,7 @@ import {
   verifyModernPassword,
 } from '../utils/authUtils';
 import { sendPasswordResetEmail } from '../utils/mailer';
+import { AUTH_COOKIE_MAX_AGE, authCookieOptions, csrfCookieOptions } from '../config/cookies';
 
 // Inisialisasi Google OAuth2 Client — digunakan untuk verifikasi ID Token
 // GOOGLE_CLIENT_ID bisa berisi beberapa client ID dipisah koma (web + mobile),
@@ -20,8 +21,7 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const GOOGLE_CLIENT_IDS = GOOGLE_CLIENT_ID.split(',').map((s) => s.trim()).filter(Boolean);
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_IDS[0]);
 
-const IS_PROD = process.env.NODE_ENV === 'production';
-const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 hari
+const COOKIE_MAX_AGE = AUTH_COOKIE_MAX_AGE;
 const JWT_EXPIRY = '7d'; // Harus sinkron dengan COOKIE_MAX_AGE
 
 /**
@@ -31,11 +31,8 @@ const JWT_EXPIRY = '7d'; // Harus sinkron dengan COOKIE_MAX_AGE
  */
 function setAuthCookie(res: Response, token: string): void {
   res.cookie('lark_token', token, {
-    httpOnly: true,                                      // Tidak accessible via JS
-    secure: IS_PROD,                                     // HTTPS only di produksi
-    sameSite: IS_PROD ? 'none' : 'lax',                 // Cross-origin untuk prod (Vercel ↔ VPS)
+    ...authCookieOptions,
     maxAge: COOKIE_MAX_AGE,
-    path: '/',
   });
 }
 
@@ -90,19 +87,11 @@ export const logoutAdmin = async (req: Request, res: Response) => {
     console.error('[Logout] token_version increment failed:', e);
   }
 
-  res.clearCookie('lark_token', {
-    httpOnly: true,
-    secure: IS_PROD,
-    sameSite: IS_PROD ? 'none' : 'lax',
-    path: '/',
-  });
+  // Atribut clearCookie WAJIB sama persis dengan saat cookie diset —
+  // browser mencocokkan path/secure/sameSite sebelum menghapus.
+  res.clearCookie('lark_token', authCookieOptions);
   // Juga hapus CSRF cookie
-  res.clearCookie('lark_csrf', {
-    httpOnly: false,
-    secure: IS_PROD,
-    sameSite: IS_PROD ? 'none' : 'lax',
-    path: '/',
-  });
+  res.clearCookie('lark_csrf', csrfCookieOptions);
   return res.status(200).json({ success: true, message: 'Logout berhasil.' });
 };
 

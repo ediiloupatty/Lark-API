@@ -69,12 +69,41 @@ const allowedOrigins = Array.from(
   )
 );
 
+const IS_PROD = process.env.NODE_ENV === 'production';
+
+/** IPv4 privat: 192.168.x.x dan 10.x.x.x — dipakai saat uji perangkat fisik. */
+const PRIVATE_LAN_IPV4 = /^(?:192\.168|10)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){2,3}$/;
+
+/**
+ * Validasi origin dengan mencocokkan HOSTNAME hasil parse URL — bukan prefiks
+ * string.
+ *
+ * Versi lama memakai `startsWith('http://localhost')`, sehingga domain milik
+ * penyerang seperti `http://localhost.evil.com`, `http://10.evil.com`, dan
+ * `http://192.168.evil.com` ikut dinyatakan sah. Digabung dengan
+ * `cors({ credentials: true })`, halaman penyerang bisa memanggil API sambil
+ * membawa cookie sesi korban DAN membaca balasannya.
+ *
+ * Izin localhost/LAN juga dipersempit ke non-produksi: server produksi tidak
+ * punya alasan menerima origin http dari jaringan lokal.
+ */
 function isAllowedOrigin(origin: string): boolean {
   const normalizedOrigin = origin.replace(/\/$/, '');
   if (allowedOrigins.includes(normalizedOrigin)) return true;
-  if (normalizedOrigin.startsWith('http://localhost') || normalizedOrigin.startsWith('http://127.0.0.1')) return true;
-  if (normalizedOrigin.startsWith('http://192.168.') || normalizedOrigin.startsWith('http://10.')) return true;
-  return false;
+
+  if (IS_PROD) return false;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(normalizedOrigin);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'http:') return false;
+
+  const host = parsed.hostname;
+  if (host === 'localhost' || host === '127.0.0.1') return true;
+  return PRIVATE_LAN_IPV4.test(host);
 }
 
 app.use((req: Request, res: Response, next) => {

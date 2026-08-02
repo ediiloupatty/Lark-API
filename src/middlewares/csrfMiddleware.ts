@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
+import { AUTH_COOKIE_MAX_AGE, csrfCookieOptions } from '../config/cookies';
 
 /**
  * CSRF Protection — Double Submit Cookie Pattern.
@@ -20,7 +21,6 @@ import crypto from 'crypto';
  * - Mobile App requests (dikirim via header x-app-platform: LarkMobile)
  */
 
-const IS_PROD = process.env.NODE_ENV === 'production';
 /**
  * Middleware untuk SET csrf cookie pada setiap response.
  * Dipasang di level app, sebelum routes.
@@ -30,11 +30,8 @@ export function setCsrfCookie(req: Request, res: Response, next: NextFunction) {
   if (!(req as any).cookies?.lark_csrf) {
     const csrfToken = crypto.randomBytes(32).toString('hex');
     res.cookie('lark_csrf', csrfToken, {
-      httpOnly: false,            // HARUS false — frontend perlu baca ini via JS
-      secure: IS_PROD,
-      sameSite: IS_PROD ? 'none' : 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 hari (sama dengan auth cookie)
-      path: '/',
+      ...csrfCookieOptions,       // httpOnly: false — frontend perlu baca ini via JS
+      maxAge: AUTH_COOKIE_MAX_AGE, // 7 hari (sama dengan auth cookie)
     });
   }
   next();
